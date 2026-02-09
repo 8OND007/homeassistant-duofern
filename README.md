@@ -3,7 +3,7 @@
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A custom Home Assistant integration for **Rademacher DuoFern** roller shutters via the DuoFern USB stick (model 7000 00 93).
+A custom Home Assistant integration for **Rademacher DuoFern** roller shutters via the DuoFern USB stick (model 7000). If anyone has model 9000 please let me know if you experience troubles.
 
 This integration communicates directly with the DuoFern USB stick using the native serial protocol — no cloud, no additional gateway, fully local.
 
@@ -31,7 +31,7 @@ This integration communicates directly with the DuoFern USB stick using the nati
 
 ### HACS (Recommended)
 
-1. Open HACS in Home Assistant
+1. Open HACS (HomeAssistant Custom Solution) in Home Assistant
 2. Click the three dots menu (top right) and select **Custom repositories**
 3. Add `https://github.com/MSchenkl/homeassistant-duofern` with category **Integration**
 4. Search for "Rademacher DuoFern" and install
@@ -59,7 +59,7 @@ Go to **Settings > Devices & Services > Add Integration > DuoFern**
 Enter the 6-digit hex codes of your paired DuoFern devices, separated by commas:
 
 ```
-406B0D, 4090EA, 40B689, 4053B8, 4083D8, 409C11
+e.g. 406B2D, 4090AE, 40B690, 
 ```
 
 These are the device codes from your previous FHEM configuration.
@@ -116,12 +116,12 @@ This integration implements the DuoFern serial protocol from scratch:
 
 Protocol implementation based on analysis of FHEM modules `10_DUOFERNSTICK.pm` and `30_DUOFERN.pm`.
 
-## Migrating from FHEM
+## Migrating from other Environments
 
-1. Note your system code and device codes from your FHEM configuration
+1. Note your system code and device codes from your old configuration
 2. Install this integration and enter the codes during setup
 3. Device pairing is preserved in the USB stick — no re-pairing needed
-4. For new devices, use `pair_duofern.py` instead of FHEM
+4. For new devices, you can always use `pair_duofern.py` 
 
 ## License
 
