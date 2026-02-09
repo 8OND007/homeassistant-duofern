@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+dist/
+build/
+*.egg
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# IDE & editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# FHEM reference files (not part of this project)
+*.pm
+
+# Personal notes & docs
+*.rtf
+
+# Backup archives
+*.zip
+
+# Home Assistant logs
+home-assistant_*.log
+
+# FHEM config (contains personal data)
+fhem.cfg
+
+# Claude Code
+.claude/

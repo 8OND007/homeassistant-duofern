@@ -1,0 +1,52 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Rademacher DuoFern USB-Stick",
+        "description": "Configure the connection to your DuoFern USB stick.",
+        "data": {
+          "serial_port": "Serial Port",
+          "system_code": "System Code (6-digit hex, starts with 6F)"
+        },
+        "data_description": {
+          "serial_port": "The serial port path of the DuoFern USB stick (e.g. /dev/ttyUSB0).",
+          "system_code": "The 6-digit hex code of your DuoFern system (starts with 6F, e.g. 6F1A2B). This is the dongle serial number."
+        }
+      },
+      "devices": {
+        "title": "Paired Devices",
+        "description": "Enter the 6-digit hex codes of your paired DuoFern devices, separated by commas.",
+        "data": {
+          "paired_devices": "Device Codes"
+        },
+        "data_description": {
+          "paired_devices": "Comma-separated list of 6-digit hex device codes (e.g. 406B0D, 4090EA, 40B689). These are the codes of your roller shutters and other DuoFern devices."
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect to the DuoFern stick. Check the serial port path.",
+      "invalid_system_code": "Invalid system code. Must be 6 hex digits starting with 6F.",
+      "invalid_device_code": "One or more device codes are invalid. Each must be exactly 6 hex digits.",
+      "no_devices": "Please enter at least one device code.",
+      "unknown": "An unexpected error occurred."
+    },
+    "abort": {
+      "already_configured": "This DuoFern stick is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "DuoFern Paired Devices",
+        "description": "Edit the list of paired DuoFern device codes. The integration will reload after saving.",
+        "data": {
+          "paired_devices": "Device Codes"
+        },
+        "data_description": {
+          "paired_devices": "Comma-separated list of 6-digit hex device codes (e.g. 406B0D, 4090EA, 40B689)."
+        }
+      }
+    }
+  }
+}
