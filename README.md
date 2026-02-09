@@ -78,6 +78,13 @@ The `tools/` directory contains standalone Python scripts for testing and device
 pip install pyserial pyserial-asyncio-fast
 ```
 
+> **HAOS (Home Assistant OS) Note:** On HAOS the system Python is externally managed. You need to run:
+> ```bash
+> apk add py3-pip
+> pip install --break-system-packages pyserial-asyncio-fast
+> ```
+> This is only needed for the CLI tools. The integration itself installs dependencies automatically via `manifest.json`.
+
 ### test_duofern.py — Test Script
 
 Control roller shutters directly from the command line:
