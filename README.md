@@ -90,12 +90,16 @@ pip install pyserial pyserial-asyncio-fast
 Control roller shutters directly from the command line:
 
 ```bash
-python3 tools/test_duofern.py 4053B8 up          # Open shutter
-python3 tools/test_duofern.py 4053B8 down         # Close shutter
-python3 tools/test_duofern.py 4053B8 stop         # Stop movement
-python3 tools/test_duofern.py 4053B8 position 50  # Set to 50%
-python3 tools/test_duofern.py 4053B8 status -v    # Query status
-python3 tools/test_duofern.py 4053B8 statusall -v # Query all devices
+python3 tools/test_duofern.py 4053B8 up           # Open one shutter
+python3 tools/test_duofern.py 4053B8 down          # Close one shutter
+python3 tools/test_duofern.py 4053B8 stop          # Stop one shutter
+python3 tools/test_duofern.py 4053B8 position 50   # Set one to 50%
+python3 tools/test_duofern.py 4053B8 status        # Status of one device
+python3 tools/test_duofern.py up                   # Open ALL shutters
+python3 tools/test_duofern.py down                 # Close ALL shutters
+python3 tools/test_duofern.py position 50          # Set ALL to 50%
+python3 tools/test_duofern.py status               # Status of ALL devices
+python3 tools/test_duofern.py statusall            # Broadcast status request
 ```
 
 ### pair_duofern.py — Pairing Tool
