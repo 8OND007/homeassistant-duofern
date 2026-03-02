@@ -3,7 +3,7 @@
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A custom Home Assistant integration for **Rademacher DuoFern** roller shutters via the DuoFern USB stick (model 7000). If anyone has model 9000 please let me know if you experience troubles.
+A custom Home Assistant integration for **Rademacher DuoFern** devices via the DuoFern USB stick. Model 7000 and 9000 tested sucessfully.
 
 This integration communicates directly with the DuoFern USB stick using the native serial protocol — no cloud, no additional gateway, fully local.
 

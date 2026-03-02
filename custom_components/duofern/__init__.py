@@ -1,6 +1,6 @@
 """The Rademacher DuoFern integration.
 
-Custom integration for controlling Rademacher DuoFern roller shutters
+Custom integration for controlling Rademacher DuoFern devices
 via the DuoFern USB stick. Uses a clean protocol re-implementation based
 on the FHEM Perl modules (10_DUOFERNSTICK.pm, 30_DUOFERN.pm).
 
