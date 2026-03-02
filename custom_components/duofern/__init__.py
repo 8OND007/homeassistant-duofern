@@ -21,6 +21,7 @@ import logging
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr
 
 from .const import CONF_DEVICE_CODE, CONF_PAIRED_DEVICES, CONF_SERIAL_PORT, DOMAIN
 from .coordinator import DuoFernCoordinator
@@ -34,9 +35,7 @@ PLATFORMS: list[Platform] = [Platform.COVER]
 type DuoFernConfigEntry = ConfigEntry[DuoFernCoordinator]
 
 
-async def async_migrate_entry(
-    hass: HomeAssistant, config_entry: ConfigEntry
-) -> bool:
+async def async_migrate_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:
     """Migrate old config entries to new format.
 
     Version 1 -> 2: Add paired_devices key to entry.data (empty list default).
@@ -47,17 +46,13 @@ async def async_migrate_entry(
 
     if config_entry.version == 1:
         new_data = {**config_entry.data, CONF_PAIRED_DEVICES: []}
-        hass.config_entries.async_update_entry(
-            config_entry, data=new_data, version=2
-        )
+        hass.config_entries.async_update_entry(config_entry, data=new_data, version=2)
         _LOGGER.info("Migrated DuoFern config entry to version 2")
 
     return True
 
 
-async def async_setup_entry(
-    hass: HomeAssistant, entry: DuoFernConfigEntry
-) -> bool:
+async def async_setup_entry(hass: HomeAssistant, entry: DuoFernConfigEntry) -> bool:
     """Set up DuoFern from a config entry.
 
     Called by HA when the user completes the config flow or on HA startup
@@ -96,6 +91,18 @@ async def async_setup_entry(
     # Store the coordinator as runtime data on the config entry
     entry.runtime_data = coordinator
 
+    # Register the USB stick as a device BEFORE platforms are set up.
+    # This is required so that child devices can reference it via via_device
+    # without triggering a "non existing via_device" warning.
+    registry = dr.async_get(hass)
+    registry.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, system_code.hex)},
+        manufacturer="Rademacher",
+        model="DuoFern USB-Stick 7000",
+        name=f"DuoFern Stick ({system_code.hex})",
+    )
+
     # Listen for config entry updates (e.g., device list changes via options flow)
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
 
@@ -105,9 +112,7 @@ async def async_setup_entry(
     return True
 
 
-async def async_unload_entry(
-    hass: HomeAssistant, entry: DuoFernConfigEntry
-) -> bool:
+async def async_unload_entry(hass: HomeAssistant, entry: DuoFernConfigEntry) -> bool:
     """Unload a DuoFern config entry."""
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
@@ -118,8 +123,6 @@ async def async_unload_entry(
     return unload_ok
 
 
-async def _async_update_listener(
-    hass: HomeAssistant, entry: ConfigEntry
-) -> None:
+async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Handle config entry updates (reload integration)."""
     await hass.config_entries.async_reload(entry.entry_id)
