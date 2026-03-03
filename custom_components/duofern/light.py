@@ -153,7 +153,8 @@ class DuoFernLight(CoordinatorEntity[DuoFernCoordinator], LightEntity):
         if state is None:
             return {}
         attrs: dict[str, Any] = {
-            k: v for k, v in state.status.readings.items()
+            k: v
+            for k, v in state.status.readings.items()
             if k not in _SKIP_AS_ATTRIBUTE
         }
         if state.status.version:
@@ -188,8 +189,7 @@ class DuoFernLight(CoordinatorEntity[DuoFernCoordinator], LightEntity):
             self._attr_device_info = DeviceInfo(
                 identifiers={(DOMAIN, self._hex_code)},
                 name=(
-                    f"DuoFern {self._device_code.device_type_name}"
-                    f" ({self._hex_code})"
+                    f"DuoFern {self._device_code.device_type_name} ({self._hex_code})"
                 ),
                 manufacturer="Rademacher",
                 model=self._device_code.device_type_name,

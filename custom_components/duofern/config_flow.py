@@ -86,9 +86,7 @@ class DuoFernConfigFlow(ConfigFlow, domain=DOMAIN):
                     return await self.async_step_devices()
 
         # Build the list of available serial ports for the dropdown
-        ports = await self.hass.async_add_executor_job(
-            serial.tools.list_ports.comports
-        )
+        ports = await self.hass.async_add_executor_job(serial.tools.list_ports.comports)
         port_list = {p.device: f"{p.device} ({p.description})" for p in ports}
 
         # If we have a discovered port, pre-select it
@@ -223,16 +221,12 @@ class DuoFernOptionsFlow(OptionsFlow):
                     return self.async_create_entry(data={})
 
         # Pre-fill with current device codes
-        current_codes: list[str] = self._config_entry.data.get(
-            CONF_PAIRED_DEVICES, []
-        )
+        current_codes: list[str] = self._config_entry.data.get(CONF_PAIRED_DEVICES, [])
         default_value = ", ".join(current_codes) if current_codes else ""
 
         data_schema = vol.Schema(
             {
-                vol.Required(
-                    CONF_PAIRED_DEVICES, default=default_value
-                ): str,
+                vol.Required(CONF_PAIRED_DEVICES, default=default_value): str,
             }
         )
 

@@ -69,6 +69,7 @@ _LOGGER = logging.getLogger(__name__)
 # Data classes
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class DuoFernId:
     """A 3-byte DuoFern identifier stored as bytes.
@@ -205,16 +206,16 @@ class ParsedStatus:
     """
 
     readings: dict[str, object] = field(default_factory=dict)
-    position: int | None = None     # 0=open, 100=closed (DuoFern native)
-    level: int | None = None        # 0-100
+    position: int | None = None  # 0=open, 100=closed (DuoFern native)
+    level: int | None = None  # 0-100
     moving: str = "stop"
     version: str | None = None
 
     measured_temp: float | None = None
     desired_temp: float | None = None
 
-    missing_ack: bool = False       # NACK 810108AA
-    not_initialized: bool = False   # NACK 81010C55
+    missing_ack: bool = False  # NACK 810108AA
+    not_initialized: bool = False  # NACK 81010C55
 
     device_code: str | None = None
     channel: str | None = None
@@ -255,21 +256,24 @@ class WeatherData:
 # Enums
 # ---------------------------------------------------------------------------
 
+
 class CoverCommand(IntEnum):
     """Cover command codes from 30_DUOFERN.pm %commands."""
-    UP       = 0x0701
-    STOP     = 0x0702
-    DOWN     = 0x0703
+
+    UP = 0x0701
+    STOP = 0x0702
+    DOWN = 0x0703
     POSITION = 0x0707
-    TOGGLE   = 0x071A
-    DUSK     = 0x0709   # dusk => "070901FF000000000000"
-    DAWN     = 0x0713   # dawn => "071301FF000000000000"
+    TOGGLE = 0x071A
+    DUSK = 0x0709  # dusk => "070901FF000000000000"
+    DAWN = 0x0713  # dawn => "071301FF000000000000"
 
 
 class SwitchCommand(IntEnum):
     """Switch / dimmer on/off from 30_DUOFERN.pm %commands."""
+
     OFF = 0x0E02
-    ON  = 0x0E03
+    ON = 0x0E03
 
 
 class AutomationCommand(IntEnum):
@@ -278,37 +282,40 @@ class AutomationCommand(IntEnum):
     Pattern: 0804/0805/0806/0807/0808/0809/0801/0802...
     on  = FD, off = FE suffix.
     """
-    SUN_AUTOMATIC_ON      = 0x0801
-    VENTILATING_MODE_ON   = 0x0802
-    TIME_AUTOMATIC_ON     = 0x0804
-    DUSK_AUTOMATIC_ON     = 0x0805
-    MANUAL_MODE_ON        = 0x0806
-    WIND_AUTOMATIC_ON     = 0x0807
-    RAIN_AUTOMATIC_ON     = 0x0808
-    DAWN_AUTOMATIC_ON     = 0x0809
+
+    SUN_AUTOMATIC_ON = 0x0801
+    VENTILATING_MODE_ON = 0x0802
+    TIME_AUTOMATIC_ON = 0x0804
+    DUSK_AUTOMATIC_ON = 0x0805
+    MANUAL_MODE_ON = 0x0806
+    WIND_AUTOMATIC_ON = 0x0807
+    RAIN_AUTOMATIC_ON = 0x0808
+    DAWN_AUTOMATIC_ON = 0x0809
 
 
 class MessageType(IntEnum):
     """Top-level message type byte. From 10_DUOFERNSTICK.pm."""
-    INIT1        = 0x01
-    SET_PAIRS    = 0x03
-    START_PAIR   = 0x04
-    STOP_PAIR    = 0x05
-    PAIR_RESP    = 0x06
+
+    INIT1 = 0x01
+    SET_PAIRS = 0x03
+    START_PAIR = 0x04
+    STOP_PAIR = 0x05
+    PAIR_RESP = 0x06
     START_UNPAIR = 0x07
-    STOP_UNPAIR  = 0x08
-    SET_DONGLE   = 0x0A
-    COMMAND      = 0x0D
-    INIT2        = 0x0E
-    STATUS       = 0x0F
-    INIT_END     = 0x10
-    INIT3        = 0x14
-    ACK          = 0x81
+    STOP_UNPAIR = 0x08
+    SET_DONGLE = 0x0A
+    COMMAND = 0x0D
+    INIT2 = 0x0E
+    STATUS = 0x0F
+    INIT_END = 0x10
+    INIT3 = 0x14
+    ACK = 0x81
 
 
 # ---------------------------------------------------------------------------
 # Encoder
 # ---------------------------------------------------------------------------
+
 
 class DuoFernEncoder:
     """Builds DuoFern protocol frames as bytearray.
@@ -331,36 +338,51 @@ class DuoFernEncoder:
     @staticmethod
     def build_init1() -> bytearray:
         """duoInit1 = '01000000...'"""
-        f = DuoFernEncoder._frame(); f[0] = 0x01; return f
+        f = DuoFernEncoder._frame()
+        f[0] = 0x01
+        return f
 
     @staticmethod
     def build_init2() -> bytearray:
         """duoInit2 = '0E000000...'"""
-        f = DuoFernEncoder._frame(); f[0] = 0x0E; return f
+        f = DuoFernEncoder._frame()
+        f[0] = 0x0E
+        return f
 
     @staticmethod
     def build_set_dongle(system_code: DuoFernId) -> bytearray:
         """duoSetDongle = '0Azzzzzz000100...'"""
         f = DuoFernEncoder._frame()
-        f[0] = 0x0A; f[1:4] = system_code.raw; f[4] = 0x00; f[5] = 0x01
+        f[0] = 0x0A
+        f[1:4] = system_code.raw
+        f[4] = 0x00
+        f[5] = 0x01
         return f
 
     @staticmethod
     def build_init3() -> bytearray:
         """duoInit3 = '14140000...'"""
-        f = DuoFernEncoder._frame(); f[0] = 0x14; f[1] = 0x14; return f
+        f = DuoFernEncoder._frame()
+        f[0] = 0x14
+        f[1] = 0x14
+        return f
 
     @staticmethod
     def build_set_pair(index: int, device_code: DuoFernId) -> bytearray:
         """duoSetPairs = '03nnyyyyyy0000...'"""
         f = DuoFernEncoder._frame()
-        f[0] = 0x03; f[1] = index & 0xFF; f[2:5] = device_code.raw
+        f[0] = 0x03
+        f[1] = index & 0xFF
+        f[2:5] = device_code.raw
         return f
 
     @staticmethod
     def build_init_end() -> bytearray:
         """duoInitEnd = '10010000...'"""
-        f = DuoFernEncoder._frame(); f[0] = 0x10; f[1] = 0x01; return f
+        f = DuoFernEncoder._frame()
+        f[0] = 0x10
+        f[1] = 0x01
+        return f
 
     @staticmethod
     def build_ack() -> bytearray:
@@ -368,7 +390,9 @@ class DuoFernEncoder:
 
         From DUOFERNSTICK_Parse: if not ACK -> send ACK back immediately.
         """
-        f = DuoFernEncoder._frame(); f[0] = 0x81; return f
+        f = DuoFernEncoder._frame()
+        f[0] = 0x81
+        return f
 
     # -- Status requests --
 
@@ -380,8 +404,14 @@ class DuoFernEncoder:
           "0DFF0F400000000000000000000000000000FFFFFF01"
         """
         f = DuoFernEncoder._frame()
-        f[0]=0x0D; f[1]=0xFF; f[2]=0x0F; f[3]=0x40
-        f[18]=0xFF; f[19]=0xFF; f[20]=0xFF; f[21]=0x01
+        f[0] = 0x0D
+        f[1] = 0xFF
+        f[2] = 0x0F
+        f[3] = 0x40
+        f[18] = 0xFF
+        f[19] = 0xFF
+        f[20] = 0xFF
+        f[21] = 0x01
         return f
 
     @staticmethod
@@ -396,8 +426,12 @@ class DuoFernEncoder:
           $duoStatusRequest = "0DFFnn400000000000000000000000000000yyyyyy01"
         """
         f = DuoFernEncoder._frame()
-        f[0]=0x0D; f[1]=0xFF; f[2]=status_type; f[3]=0x40
-        f[18:21] = device_code.raw; f[21]=0x01
+        f[0] = 0x0D
+        f[1] = 0xFF
+        f[2] = status_type
+        f[3] = 0x40
+        f[18:21] = device_code.raw
+        f[21] = 0x01
         return f
 
     # -- Cover / actor commands --
@@ -442,10 +476,12 @@ class DuoFernEncoder:
                 _LOGGER.warning("POSITION command sent without position value")
         elif command == CoverCommand.DUSK:
             # dusk = "070901FF000000000000"
-            f[4] = 0x01; f[5] = 0xFF
+            f[4] = 0x01
+            f[5] = 0xFF
         elif command == CoverCommand.DAWN:
             # dawn = "071301FF000000000000"
-            f[4] = 0x01; f[5] = 0xFF
+            f[4] = 0x01
+            f[5] = 0xFF
         # STOP, TOGGLE: no extra parameters
 
         f[15:18] = system_code.raw
@@ -494,10 +530,13 @@ class DuoFernEncoder:
           on  => "0E03tt00000000000000"
         """
         f = DuoFernEncoder._frame()
-        f[0]=0x0D; f[1]=channel
-        f[2]=(command>>8)&0xFF; f[3]=command&0xFF
-        f[4]=0x01 if timer else 0x00
-        f[15:18]=system_code.raw; f[18:21]=device_code.raw
+        f[0] = 0x0D
+        f[1] = channel
+        f[2] = (command >> 8) & 0xFF
+        f[3] = command & 0xFF
+        f[4] = 0x01 if timer else 0x00
+        f[15:18] = system_code.raw
+        f[18:21] = device_code.raw
         return f
 
     @staticmethod
@@ -514,10 +553,14 @@ class DuoFernEncoder:
           level => "0707ttnn000000000000"
         """
         f = DuoFernEncoder._frame()
-        f[0]=0x0D; f[1]=channel; f[2]=0x07; f[3]=0x07
-        f[4]=0x01 if timer else 0x00
-        f[5]=max(0,min(100,level))
-        f[15:18]=system_code.raw; f[18:21]=device_code.raw
+        f[0] = 0x0D
+        f[1] = channel
+        f[2] = 0x07
+        f[3] = 0x07
+        f[4] = 0x01 if timer else 0x00
+        f[5] = max(0, min(100, level))
+        f[15:18] = system_code.raw
+        f[18:21] = device_code.raw
         return f
 
     @staticmethod
@@ -535,14 +578,18 @@ class DuoFernEncoder:
           ww = (temp * 10 + 400) as 16-bit big-endian
         """
         f = DuoFernEncoder._frame()
-        f[0]=0x0D; f[1]=0x01; f[2]=0x07; f[3]=0x22
-        f[4]=0x01 if timer else 0x00
+        f[0] = 0x0D
+        f[1] = 0x01
+        f[2] = 0x07
+        f[3] = 0x22
+        f[4] = 0x01 if timer else 0x00
         # ww at bytes 6-7 (offset 6 in payload = frame bytes 8-9)
         ww = int(temp * 10 + 400)
         ww = max(0, min(0xFFFF, ww))
         f[8] = (ww >> 8) & 0xFF
         f[9] = ww & 0xFF
-        f[15:18]=system_code.raw; f[18:21]=device_code.raw
+        f[15:18] = system_code.raw
+        f[18:21] = device_code.raw
         return f
 
     # -- Pairing --
@@ -550,22 +597,30 @@ class DuoFernEncoder:
     @staticmethod
     def build_start_pair() -> bytearray:
         """duoStartPair = '04000000...'"""
-        f = DuoFernEncoder._frame(); f[0]=0x04; return f
+        f = DuoFernEncoder._frame()
+        f[0] = 0x04
+        return f
 
     @staticmethod
     def build_stop_pair() -> bytearray:
         """duoStopPair = '05000000...'"""
-        f = DuoFernEncoder._frame(); f[0]=0x05; return f
+        f = DuoFernEncoder._frame()
+        f[0] = 0x05
+        return f
 
     @staticmethod
     def build_start_unpair() -> bytearray:
         """duoStartUnpair = '07000000...'"""
-        f = DuoFernEncoder._frame(); f[0]=0x07; return f
+        f = DuoFernEncoder._frame()
+        f[0] = 0x07
+        return f
 
     @staticmethod
     def build_stop_unpair() -> bytearray:
         """duoStopUnpair = '08000000...'"""
-        f = DuoFernEncoder._frame(); f[0]=0x08; return f
+        f = DuoFernEncoder._frame()
+        f[0] = 0x08
+        return f
 
     @staticmethod
     def build_remote_pair(device_code: DuoFernId) -> bytearray:
@@ -575,14 +630,18 @@ class DuoFernEncoder:
           "0D0106010000000000000000000000000000yyyyyy00"
         """
         f = DuoFernEncoder._frame()
-        f[0]=0x0D; f[1]=0x01; f[2]=0x06; f[3]=0x01
-        f[18:21]=device_code.raw
+        f[0] = 0x0D
+        f[1] = 0x01
+        f[2] = 0x06
+        f[3] = 0x01
+        f[18:21] = device_code.raw
         return f
 
 
 # ---------------------------------------------------------------------------
 # Decoder
 # ---------------------------------------------------------------------------
+
 
 class DuoFernDecoder:
     """Parses DuoFern protocol frames into typed Python objects."""
@@ -591,11 +650,15 @@ class DuoFernDecoder:
     def _ensure_bytes(data: bytes | bytearray | str) -> bytearray:
         if isinstance(data, str):
             if len(data) != FRAME_SIZE_HEX:
-                raise ValueError(f"Hex string must be {FRAME_SIZE_HEX} chars, got {len(data)}")
+                raise ValueError(
+                    f"Hex string must be {FRAME_SIZE_HEX} chars, got {len(data)}"
+                )
             return bytearray.fromhex(data)
         if isinstance(data, (bytes, bytearray)):
             if len(data) != FRAME_SIZE_BYTES:
-                raise ValueError(f"Frame must be {FRAME_SIZE_BYTES} bytes, got {len(data)}")
+                raise ValueError(
+                    f"Frame must be {FRAME_SIZE_BYTES} bytes, got {len(data)}"
+                )
             return bytearray(data)
         raise TypeError(f"Unsupported type: {type(data)}")
 
@@ -615,73 +678,74 @@ class DuoFernDecoder:
           if ($msg =~ m/0FFF0F.{38}/) { ... }
         """
         f = DuoFernDecoder._ensure_bytes(data)
-        return f[0]==0x0F and f[1]==0xFF and f[2]==0x0F
+        return f[0] == 0x0F and f[1] == 0xFF and f[2] == 0x0F
 
     @staticmethod
     def is_pair_response(data: bytes | bytearray | str) -> bool:
         """#Device paired — if ($msg =~ m/^0602/) { ... }"""
         f = DuoFernDecoder._ensure_bytes(data)
-        return f[0]==0x06 and f[1]==0x02
+        return f[0] == 0x06 and f[1] == 0x02
 
     @staticmethod
     def is_unpair_response(data: bytes | bytearray | str) -> bool:
         """#Device unpaired — if ($msg =~ m/^0603/) { ... }"""
         f = DuoFernDecoder._ensure_bytes(data)
-        return f[0]==0x06 and f[1]==0x03
+        return f[0] == 0x06 and f[1] == 0x03
 
     @staticmethod
     def is_sensor_message(data: bytes | bytearray | str) -> bool:
         """#Wandtaster, Funksender UP, Handsender, Sensoren"""
         f = DuoFernDecoder._ensure_bytes(data)
-        return f[0]==0x0F and f[2] in (0x07, 0x0E)
+        return f[0] == 0x0F and f[2] in (0x07, 0x0E)
 
     @staticmethod
     def is_weather_data(data: bytes | bytearray | str) -> bool:
         """#Umweltsensor Wetter — if ($msg =~ m/0F..1322/) { ... }"""
         f = DuoFernDecoder._ensure_bytes(data)
-        return f[0]==0x0F and f[2]==0x13 and f[3]==0x22
+        return f[0] == 0x0F and f[2] == 0x13 and f[3] == 0x22
 
     @staticmethod
     def is_time_response(data: bytes | bytearray | str) -> bool:
         """#Umweltsensor/Handzentrale Zeit — if ($msg =~ m/0F..1020/) { ... }"""
         f = DuoFernDecoder._ensure_bytes(data)
-        return f[0]==0x0F and f[2]==0x10 and f[3]==0x20
+        return f[0] == 0x0F and f[2] == 0x10 and f[3] == 0x20
 
     @staticmethod
     def is_weather_config(data: bytes | bytearray | str) -> bool:
         """#Umweltsensor Konfiguration — if ($msg =~ m/0FFF1B2[1-8]/) { ... }"""
         f = DuoFernDecoder._ensure_bytes(data)
-        return f[0]==0x0F and f[1]==0xFF and f[2]==0x1B and 0x21<=f[3]<=0x28
+        return f[0] == 0x0F and f[1] == 0xFF and f[2] == 0x1B and 0x21 <= f[3] <= 0x28
 
     @staticmethod
     def is_battery_status(data: bytes | bytearray | str) -> bool:
         """#Sensoren Batterie — if ($msg =~ m/0FFF1323/) { ... }"""
         f = DuoFernDecoder._ensure_bytes(data)
-        return f[0]==0x0F and f[1]==0xFF and f[2]==0x13 and f[3]==0x23
+        return f[0] == 0x0F and f[1] == 0xFF and f[2] == 0x13 and f[3] == 0x23
 
     @staticmethod
     def is_cmd_ack(data: bytes | bytearray | str) -> bool:
         """#ACK, Befehl vom Aktor empfangen — if ($msg =~ m/^810003CC/) { ... }"""
         f = DuoFernDecoder._ensure_bytes(data)
-        return f[0]==0x81 and f[1]==0x00 and f[2]==0x03 and f[3]==0xCC
+        return f[0] == 0x81 and f[1] == 0x00 and f[2] == 0x03 and f[3] == 0xCC
 
     @staticmethod
     def is_missing_ack(data: bytes | bytearray | str) -> bool:
-        """#NACK, Befehl nicht vom Aktor empfangen — if ($msg =~ m/^810108AA/) { ... }"""
+        """#NACK, Befehl nicht vom Aktor empfangen
+        — if ($msg =~ m/^810108AA/) { ... }"""
         f = DuoFernDecoder._ensure_bytes(data)
-        return f[0]==0x81 and f[1]==0x01 and f[2]==0x08 and f[3]==0xAA
+        return f[0] == 0x81 and f[1] == 0x01 and f[2] == 0x08 and f[3] == 0xAA
 
     @staticmethod
     def is_not_initialized(data: bytes | bytearray | str) -> bool:
         """#NACK, Aktor nicht initialisiert — if ($msg =~ m/^81010C55/) { ... }"""
         f = DuoFernDecoder._ensure_bytes(data)
-        return f[0]==0x81 and f[1]==0x01 and f[2]==0x0C and f[3]==0x55
+        return f[0] == 0x81 and f[1] == 0x01 and f[2] == 0x0C and f[3] == 0x55
 
     @staticmethod
     def is_broadcast_ack(data: bytes | bytearray | str) -> bool:
         """Broadcast status ack (0FFF11...) — silently ignored."""
         f = DuoFernDecoder._ensure_bytes(data)
-        return f[0]==0x0F and f[1]==0xFF and f[2]==0x11
+        return f[0] == 0x0F and f[1] == 0xFF and f[2] == 0x11
 
     @staticmethod
     def should_dispatch(data: bytes | bytearray | str) -> bool:
@@ -692,9 +756,9 @@ class DuoFernDecoder:
           Broadcast status ack (0FFF11...) silently ignored.
         """
         f = DuoFernDecoder._ensure_bytes(data)
-        if f[0]==0x81:
+        if f[0] == 0x81:
             return False
-        if f[0]==0x0F and f[1]==0xFF and f[2]==0x11:
+        if f[0] == 0x0F and f[1] == 0xFF and f[2] == 0x11:
             return False
         return True
 
@@ -709,7 +773,7 @@ class DuoFernDecoder:
           $code = substr($msg, 36, 6) => bytes 18-20 (ACK 81...)
         """
         f = DuoFernDecoder._ensure_bytes(data)
-        if f[0]==MessageType.ACK:
+        if f[0] == MessageType.ACK:
             return DuoFernId(raw=bytes(f[18:21]))
         return DuoFernId(raw=bytes(f[15:18]))
 
@@ -754,12 +818,12 @@ class DuoFernDecoder:
         if map_key not in STATUS_MAPPING:
             return raw
         mapping = STATUS_MAPPING[map_key]
-        if map_key in ("onOff","upDown","moving","motor","closeT","openS"):
+        if map_key in ("onOff", "upDown", "moving", "motor", "closeT", "openS"):
             idx = int(raw)
-            return mapping[idx] if 0<=idx<len(mapping) else str(raw)
+            return mapping[idx] if 0 <= idx < len(mapping) else str(raw)
         if map_key == "hex":
             val = int(raw)
-            return f"{(val>>4)&0x0F}.{val&0x0F}"
+            return f"{(val >> 4) & 0x0F}.{val & 0x0F}"
         factor, offset = mapping[0], mapping[1]
         if map_key == "scale10":
             return (raw - offset) / factor
@@ -802,7 +866,8 @@ class DuoFernDecoder:
           }
 
         blindsMode cleanup:
-          if (defined($statusValue{blindsMode}) && ($statusValue{blindsMode} eq "off")) {
+          if (defined($statusValue{blindsMode})
+              && ($statusValue{blindsMode} eq "off")) {
             foreach my $reading (@readingsBlindMode) { delete ... }
           }
 
@@ -820,7 +885,7 @@ class DuoFernDecoder:
 
         # Firmware version at byte 12: high nibble = major, low nibble = minor
         ver_byte = frame[12]
-        result.version = f"{(ver_byte>>4)&0x0F}.{ver_byte&0x0F}"
+        result.version = f"{(ver_byte >> 4) & 0x0F}.{ver_byte & 0x0F}"
 
         fmt = DuoFernDecoder._determine_format(frame, device_code)
         readings: dict[str, object] = {}
@@ -869,12 +934,16 @@ class DuoFernDecoder:
             result.moving = str(readings["moving"])
         if "measured-temp" in readings:
             try:
-                result.measured_temp = float(readings["measured-temp"])  # type: ignore[arg-type]
+                result.measured_temp = float(  # type: ignore[arg-type]
+                    readings["measured-temp"]
+                )
             except (TypeError, ValueError):
                 pass
         if "desired-temp" in readings:
             try:
-                result.desired_temp = float(readings["desired-temp"])  # type: ignore[arg-type]
+                result.desired_temp = float(  # type: ignore[arg-type]
+                    readings["desired-temp"]
+                )
             except (TypeError, ValueError):
                 pass
 
@@ -918,15 +987,15 @@ class DuoFernDecoder:
         """
         frame = DuoFernDecoder._ensure_bytes(data)
         w = WeatherData()
-        brightness_raw = (frame[4]<<8)|frame[5]
+        brightness_raw = (frame[4] << 8) | frame[5]
         brightness_exp = 1000 if (brightness_raw & 0x0400) else 1
         w.brightness = float((brightness_raw & 0x01FF) * brightness_exp)
         w.sun_direction = frame[7] * 1.5
         w.sun_height = float(frame[8] - 90)
-        temp_raw = (frame[9]<<8)|frame[10]
+        temp_raw = (frame[9] << 8) | frame[10]
         w.temperature = ((temp_raw & 0x7FFF) - 400) / 10.0
         w.is_raining = bool(temp_raw & 0x8000)
-        wind_raw = (frame[11]<<8)|frame[12]
+        wind_raw = (frame[11] << 8) | frame[12]
         w.wind = (wind_raw & 0x03FF) / 10.0
         return w
 
@@ -938,18 +1007,21 @@ class DuoFernDecoder:
         """
         frame = DuoFernDecoder._ensure_bytes(data)
         level = frame[4]
-        return {"batteryState": "low" if level<=10 else "ok", "batteryPercent": level}
+        return {"batteryState": "low" if level <= 10 else "ok", "batteryPercent": level}
 
 
 # ---------------------------------------------------------------------------
 # Utility functions
 # ---------------------------------------------------------------------------
 
+
 def frame_to_hex(frame: bytearray) -> str:
     return frame.hex().upper()
 
+
 def hex_to_frame(hex_str: str) -> bytearray:
     return bytearray.fromhex(hex_str)
+
 
 def validate_system_code(code: str) -> bool:
     """Validate system code: 6 hex chars starting with '6F'.
@@ -963,6 +1035,7 @@ def validate_system_code(code: str) -> bool:
     except ValueError:
         return False
     return code.upper().startswith("6F")
+
 
 def validate_device_code(code: str) -> bool:
     if len(code) != 6:

@@ -153,6 +153,7 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
         base device + one DuoFernDeviceState per channel.
         """
         from .const import DEVICE_CHANNELS
+
         for device in self._paired_devices:
             if device.has_channels:
                 # Register each channel as a separate entity
@@ -164,9 +165,7 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
                     )
                     _LOGGER.debug("Registered channel device %s", full_hex)
             else:
-                self.data.devices[device.hex] = DuoFernDeviceState(
-                    device_code=device
-                )
+                self.data.devices[device.hex] = DuoFernDeviceState(device_code=device)
                 _LOGGER.debug("Registered device %s", device.hex)
 
     # ------------------------------------------------------------------
@@ -189,7 +188,8 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
         await self._stick.connect()
         _LOGGER.info(
             "DuoFern coordinator connected (system code: %s, %d devices)",
-            self._system_code.hex, len(self._paired_devices),
+            self._system_code.hex,
+            len(self._paired_devices),
         )
 
     async def async_disconnect(self) -> None:
@@ -306,12 +306,15 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
         for key in ("obstacle", "block", "lightCurtain"):
             val = parsed.readings.get(key)
             if val:
-                self.hass.bus.async_fire(DUOFERN_EVENT, {
-                    "device_code": hex_code,
-                    "event": key,
-                    "state": str(val),
-                    "channel": "01",
-                })
+                self.hass.bus.async_fire(
+                    DUOFERN_EVENT,
+                    {
+                        "device_code": hex_code,
+                        "event": key,
+                        "state": str(val),
+                        "channel": "01",
+                    },
+                )
 
     def _handle_sensor_event(self, frame: bytearray) -> None:
         """Handle sensor / button event.
@@ -325,7 +328,10 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
 
         _LOGGER.debug(
             "Sensor event: %s ch=%s event=%s state=%s",
-            event.device_code, event.channel, event.event_name, event.state,
+            event.device_code,
+            event.channel,
+            event.event_name,
+            event.state,
         )
 
         # Update last_seen
@@ -334,12 +340,15 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
             state.last_seen = datetime.now().isoformat(timespec="seconds")
 
         # Fire HA event for binary_sensor.py and automations
-        self.hass.bus.async_fire(DUOFERN_EVENT, {
-            "device_code": event.device_code,
-            "event": event.event_name,
-            "state": event.state,
-            "channel": event.channel,
-        })
+        self.hass.bus.async_fire(
+            DUOFERN_EVENT,
+            {
+                "device_code": event.device_code,
+                "event": event.event_name,
+                "state": event.state,
+                "channel": event.channel,
+            },
+        )
 
         self.async_set_updated_data(self.data)
 
@@ -365,19 +374,25 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
         if weather.is_raining is not None:
             r["isRaining"] = weather.is_raining
             if weather.is_raining:
-                self.hass.bus.async_fire(DUOFERN_EVENT, {
-                    "device_code": device_code.hex,
-                    "event": "startRain",
-                    "state": "on",
-                    "channel": "01",
-                })
+                self.hass.bus.async_fire(
+                    DUOFERN_EVENT,
+                    {
+                        "device_code": device_code.hex,
+                        "event": "startRain",
+                        "state": "on",
+                        "channel": "01",
+                    },
+                )
             else:
-                self.hass.bus.async_fire(DUOFERN_EVENT, {
-                    "device_code": device_code.hex,
-                    "event": "endRain",
-                    "state": "off",
-                    "channel": "01",
-                })
+                self.hass.bus.async_fire(
+                    DUOFERN_EVENT,
+                    {
+                        "device_code": device_code.hex,
+                        "event": "endRain",
+                        "state": "off",
+                        "channel": "01",
+                    },
+                )
         if weather.wind is not None:
             r["wind"] = weather.wind
 
@@ -407,9 +422,7 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
         device_code = DuoFernDecoder.extract_device_code(frame)
         _LOGGER.debug("Command ACK from %s", device_code.hex)
         for _ in range(STATUS_RETRY_COUNT):
-            asyncio.create_task(
-                self._send_status_request(device_code)
-            )
+            asyncio.create_task(self._send_status_request(device_code))
 
     def _handle_missing_ack(self, frame: bytearray) -> None:
         """#NACK, Befehl nicht vom Aktor empfangen (810108AA).
@@ -494,9 +507,7 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
         self.data.pairing_active = True
         self.data.pairing_remaining = duration
         self.async_set_updated_data(self.data)
-        self._pairing_task = asyncio.create_task(
-            self._pairing_countdown(duration)
-        )
+        self._pairing_task = asyncio.create_task(self._pairing_countdown(duration))
         _LOGGER.info("Pairing started (%ds)", duration)
 
     async def async_stop_pairing(self) -> None:
@@ -519,9 +530,7 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
         self.data.unpairing_active = True
         self.data.pairing_remaining = duration
         self.async_set_updated_data(self.data)
-        self._unpairing_task = asyncio.create_task(
-            self._pairing_countdown(duration)
-        )
+        self._unpairing_task = asyncio.create_task(self._pairing_countdown(duration))
         _LOGGER.info("Unpairing started (%ds)", duration)
 
     async def async_stop_unpairing(self) -> None:
@@ -582,7 +591,9 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
           invert=100 means cover.py converts HA position (0=closed,100=open)
           to DuoFern position (0=open,100=closed).
         """
-        await self._send_cover(device_code, CoverCommand.POSITION, position=duofern_position)
+        await self._send_cover(
+            device_code, CoverCommand.POSITION, position=duofern_position
+        )
 
     async def async_cover_dusk(self, device_code: DuoFernId) -> None:
         """Move cover to dusk position (leise, programmed in device).
@@ -610,14 +621,14 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
         await self._send_cover(device_code, CoverCommand.DAWN)
         self._set_moving(device_code, "up")
 
-    async def async_cover_sun_mode(
-        self, device_code: DuoFernId, enable: bool
-    ) -> None:
+    async def async_cover_sun_mode(self, device_code: DuoFernId, enable: bool) -> None:
         """Enable/disable sun mode (070801FF / 070A0100).
 
         From 30_DUOFERN.pm: sunMode on/off
         """
-        payload = bytes.fromhex("070801FF000000000000" if enable else "070A0100000000000000")
+        payload = bytes.fromhex(
+            "070801FF000000000000" if enable else "070A0100000000000000"
+        )
         await self._send_generic(device_code, payload)
 
     async def _send_cover(
@@ -644,9 +655,7 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
     # Switch / dimmer commands
     # ------------------------------------------------------------------
 
-    async def async_switch_on(
-        self, device_code: DuoFernId, channel: int = 1
-    ) -> None:
+    async def async_switch_on(self, device_code: DuoFernId, channel: int = 1) -> None:
         """Turn switch/dimmer on.
 
         From 30_DUOFERN.pm: on => "0E03tt00000000000000"
@@ -659,9 +668,7 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
         await self._stick.send_command(frame)
         self._set_level(device_code, 100)
 
-    async def async_switch_off(
-        self, device_code: DuoFernId, channel: int = 1
-    ) -> None:
+    async def async_switch_off(self, device_code: DuoFernId, channel: int = 1) -> None:
         """Turn switch/dimmer off.
 
         From 30_DUOFERN.pm: off => "0E02tt00000000000000"
@@ -682,15 +689,11 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
         """
         if self._stick is None:
             return
-        frame = DuoFernEncoder.build_dim_command(
-            level, device_code, self._system_code
-        )
+        frame = DuoFernEncoder.build_dim_command(level, device_code, self._system_code)
         await self._stick.send_command(frame)
         self._set_level(device_code, level)
 
-    async def async_set_desired_temp(
-        self, device_code: DuoFernId, temp: float
-    ) -> None:
+    async def async_set_desired_temp(self, device_code: DuoFernId, temp: float) -> None:
         """Set desired temperature for Raumthermostat / HSA.
 
         From 30_DUOFERN.pm:
@@ -735,30 +738,30 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
         """
         # Lookup table: name -> (on_bytes, off_bytes)
         AUTOMATION_COMMANDS: dict[str, tuple[str, str]] = {
-            "timeAutomatic":   ("080400FD000000000000", "080400FE000000000000"),
-            "duskAutomatic":   ("080500FD000000000000", "080500FE000000000000"),
-            "manualMode":      ("080600FD000000000000", "080600FE000000000000"),
-            "windAutomatic":   ("080700FD000000000000", "080700FE000000000000"),
-            "rainAutomatic":   ("080800FD000000000000", "080800FE000000000000"),
-            "dawnAutomatic":   ("080900FD000000000000", "080900FE000000000000"),
-            "sunAutomatic":    ("080100FD000000000000", "080100FE000000000000"),
+            "timeAutomatic": ("080400FD000000000000", "080400FE000000000000"),
+            "duskAutomatic": ("080500FD000000000000", "080500FE000000000000"),
+            "manualMode": ("080600FD000000000000", "080600FE000000000000"),
+            "windAutomatic": ("080700FD000000000000", "080700FE000000000000"),
+            "rainAutomatic": ("080800FD000000000000", "080800FE000000000000"),
+            "dawnAutomatic": ("080900FD000000000000", "080900FE000000000000"),
+            "sunAutomatic": ("080100FD000000000000", "080100FE000000000000"),
             "ventilatingMode": ("080200FD000000000000", "080200FE000000000000"),
             "stairwellFunction": ("081400FD000000000000", "081400FE000000000000"),
-            "blindsMode":      ("081100FD000000000000", "081100FE000000000000"),
-            "tiltInSunPos":    ("080C00FD000000000000", "080C00FE000000000000"),
-            "tiltInVentPos":   ("080D00FD000000000000", "080D00FE000000000000"),
+            "blindsMode": ("081100FD000000000000", "081100FE000000000000"),
+            "tiltInSunPos": ("080C00FD000000000000", "080C00FE000000000000"),
+            "tiltInVentPos": ("080D00FD000000000000", "080D00FE000000000000"),
             "tiltAfterMoveLevel": ("080E00FD000000000000", "080E00FE000000000000"),
-            "tiltAfterStopDown":  ("080F00FD000000000000", "080F00FE000000000000"),
+            "tiltAfterStopDown": ("080F00FD000000000000", "080F00FE000000000000"),
             "saveIntermediateOnStop": ("080200FB000000000000", "080200FC000000000000"),
-            "10minuteAlarm":   ("081700FD000000000000", "081700FE000000000000"),
-            "2000cycleAlarm":  ("081900FD000000000000", "081900FE000000000000"),
-            "backJump":        ("081B00FD000000000000", "081B00FE000000000000"),
-            "modeChange":      ("070C0000000000000000", "070C0000000000000000"),  # toggle-only
-            "windMode":        ("070D01FF000000000000", "070E0100000000000000"),
-            "rainMode":        ("071101FF000000000000", "07120100000000000000"),
-            "reversal":        ("070C0000000000000000", "070C0000000000000000"),  # toggle only
+            "10minuteAlarm": ("081700FD000000000000", "081700FE000000000000"),
+            "2000cycleAlarm": ("081900FD000000000000", "081900FE000000000000"),
+            "backJump": ("081B00FD000000000000", "081B00FE000000000000"),
+            "modeChange": ("070C0000000000000000", "070C0000000000000000"),  # toggle
+            "windMode": ("070D01FF000000000000", "070E0100000000000000"),
+            "rainMode": ("071101FF000000000000", "07120100000000000000"),
+            "reversal": ("070C0000000000000000", "070C0000000000000000"),  # toggle only
             "intermediateMode": ("080200FD000000000000", "080200FE000000000000"),
-            "modeChange":      ("070C0000000000000000", "070C0000000000000000"),  # toggle only
+            "modeChange": ("070C0000000000000000", "070C0000000000000000"),  # toggle
         }
         cmd_pair = AUTOMATION_COMMANDS.get(name)
         if cmd_pair is None:
@@ -793,7 +796,8 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
         """Set ventilating position (0-100, inverted).
 
         From 30_DUOFERN.pm:
-          ventilatingPosition => {cmd => {value => "080200nn000000000000"}, invert => 100}
+          ventilatingPosition =>
+              {cmd => {value => "080200nn000000000000"}, invert => 100}
         """
         nn = 100 - max(0, min(100, position))
         payload = bytes.fromhex(f"080200{nn:02x}000000000000")
@@ -811,9 +815,7 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
         payload = bytes.fromhex(f"071B00000000{nn:02x}000000")
         await self._send_generic(device_code, payload)
 
-    async def async_set_running_time(
-        self, device_code: DuoFernId, value: int
-    ) -> None:
+    async def async_set_running_time(self, device_code: DuoFernId, value: int) -> None:
         """Set running time (0-150 for Troll, 0-255 for Dimmer).
 
         From 30_DUOFERN.pm:
@@ -823,9 +825,7 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
         payload = bytes.fromhex(f"0803{nn:02x}00000000000000")
         await self._send_generic(device_code, payload)
 
-    async def async_set_slat_run_time(
-        self, device_code: DuoFernId, value: int
-    ) -> None:
+    async def async_set_slat_run_time(self, device_code: DuoFernId, value: int) -> None:
         """Set slat run time (0-50) for blinds.
 
         From 30_DUOFERN.pm:
@@ -878,7 +878,8 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
         """Set wind direction (up/down).
 
         From 30_DUOFERN.pm:
-          windDirection => {down => "071500FD000000000000", up => "071500FE000000000000"}
+          windDirection =>
+              {down => "071500FD000000000000", up => "071500FE000000000000"}
         """
         h = "071500FD000000000000" if direction == "down" else "071500FE000000000000"
         await self._send_generic(device_code, bytes.fromhex(h))
@@ -889,7 +890,8 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
         """Set rain direction (up/down).
 
         From 30_DUOFERN.pm:
-          rainDirection => {down => "071400FD000000000000", up => "071400FE000000000000"}
+          rainDirection =>
+              {down => "071400FD000000000000", up => "071400FE000000000000"}
         """
         h = "071400FD000000000000" if direction == "down" else "071400FE000000000000"
         await self._send_generic(device_code, bytes.fromhex(h))
@@ -900,19 +902,18 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
         """Set motor dead time (off/short/long).
 
         From 30_DUOFERN.pm:
-          motorDeadTime => {off => "08130000...", short => "081301...", long => "081302..."}
+          motorDeadTime =>
+              {off => "08130000...", short => "081301...", long => "081302..."}
         """
         mapping = {
-            "off":   "08130000000000000000",
+            "off": "08130000000000000000",
             "short": "08130100000000000000",
-            "long":  "08130200000000000000",
+            "long": "08130200000000000000",
         }
         h = mapping.get(value, "08130000000000000000")
         await self._send_generic(device_code, bytes.fromhex(h))
 
-    async def async_set_open_speed(
-        self, device_code: DuoFernId, value: str
-    ) -> None:
+    async def async_set_open_speed(self, device_code: DuoFernId, value: str) -> None:
         """Set SX5 open speed (11/15/19 seconds).
 
         From 30_DUOFERN.pm:
@@ -936,9 +937,9 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
         """
         mapping = {
             "off": "08180000000000000000",
-            "30":  "08180001000000000000",
-            "60":  "08180002000000000000",
-            "90":  "08180003000000000000",
+            "30": "08180001000000000000",
+            "60": "08180002000000000000",
+            "90": "08180003000000000000",
             "120": "08180004000000000000",
             "150": "08180005000000000000",
             "180": "08180006000000000000",
@@ -1018,7 +1019,9 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
         From 30_DUOFERN.pm: tempUp => {noArg => "0718tt00000000000000"}
         """
         tt = device_code.raw[0]
-        await self._send_generic(device_code, bytes.fromhex(f"0718{tt:02x}00000000000000"))
+        await self._send_generic(
+            device_code, bytes.fromhex(f"0718{tt:02x}00000000000000")
+        )
 
     async def async_temp_down(self, device_code: DuoFernId) -> None:
         """Decrement thermostat temperature.
@@ -1026,7 +1029,9 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
         From 30_DUOFERN.pm: tempDown => {noArg => "0719tt00000000000000"}
         """
         tt = device_code.raw[0]
-        await self._send_generic(device_code, bytes.fromhex(f"0719{tt:02x}00000000000000"))
+        await self._send_generic(
+            device_code, bytes.fromhex(f"0719{tt:02x}00000000000000")
+        )
 
     async def async_reset(
         self, device_code: DuoFernId, reset_type: str = "settings"
@@ -1037,7 +1042,11 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
           reset => {settings => "0815CB00000000000000",
                     full     => "0815CC00000000000000"}
         """
-        h = "0815CB00000000000000" if reset_type == "settings" else "0815CC00000000000000"
+        h = (
+            "0815CB00000000000000"
+            if reset_type == "settings"
+            else "0815CC00000000000000"
+        )
         await self._send_generic(device_code, bytes.fromhex(h))
 
     async def async_remote_pair(self, device_code: DuoFernId) -> None:
@@ -1135,7 +1144,8 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
         """Request weather station configuration.
 
         From 30_DUOFERN.pm:
-          getConfig => $duoWeatherConfig = "0D001B400000000000000000000000000000yyyyyy00"
+          getConfig =>
+              $duoWeatherConfig = "0D001B400000000000000000000000000000yyyyyy00"
         """
         if self._stick is None:
             return
@@ -1187,10 +1197,12 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
     async def async_set_umweltsensor_number(
         self, device_code: DuoFernId, value: float
     ) -> None:
-        """Stub for Umweltsensor register-based number settings (latitude/longitude/timezone).
+        """Stub for Umweltsensor register-based number settings
+        (latitude/longitude/timezone).
 
         From 30_DUOFERN.pm %wCmds: these values are encoded into device registers
-        and sent via writeConfig. Storing value locally; will be sent on next writeConfig.
+        and sent via writeConfig. Storing value locally; will be sent on
+        next writeConfig.
         Full register encoding from wCmds requires separate implementation if needed.
         """
         _LOGGER.info(
@@ -1207,6 +1219,7 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
           where mm=date (year,month,weekday,day) and nn=time (hour,min,sec)
         """
         import datetime
+
         now = datetime.datetime.now()
         wday = now.weekday()  # 0=Mon, already matches FHEM after their adjustment
         mm = f"{now.year - 2000:02x}{now.month:02x}{wday:02x}{now.day:02x}"

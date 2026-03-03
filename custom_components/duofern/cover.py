@@ -302,9 +302,7 @@ class DuoFernCover(CoordinatorEntity[DuoFernCoordinator], CoverEntity):
         """
         ha_position: int = kwargs.get("position", 0)
         duofern_position = 100 - ha_position
-        await self.coordinator.async_cover_position(
-            self._device_code, duofern_position
-        )
+        await self.coordinator.async_cover_position(self._device_code, duofern_position)
 
     # ------------------------------------------------------------------
     # Coordinator entity callbacks
@@ -318,8 +316,7 @@ class DuoFernCover(CoordinatorEntity[DuoFernCoordinator], CoverEntity):
             self._attr_device_info = DeviceInfo(
                 identifiers={(DOMAIN, self._hex_code)},
                 name=(
-                    f"DuoFern {self._device_code.device_type_name}"
-                    f" ({self._hex_code})"
+                    f"DuoFern {self._device_code.device_type_name} ({self._hex_code})"
                 ),
                 manufacturer="Rademacher",
                 model=self._device_code.device_type_name,

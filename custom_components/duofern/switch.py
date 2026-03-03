@@ -65,9 +65,11 @@ _ALL_ACTUATORS = _ALL_COVERS | _SWITCH_TYPES | _DIMMER_TYPES
 # Automation toggle switch descriptions
 # ===========================================================================
 
+
 @dataclass(frozen=True)
 class DuoFernAutomationSwitchDescription(SwitchEntityDescription):
     """Describes an on/off automation toggle switch (CONFIG category)."""
+
     reading_key: str = ""
     automation_name: str = ""
     device_types: frozenset[int] = frozenset()
@@ -356,6 +358,7 @@ _SKIP_AS_ATTRIBUTE = {"level"}
 # async_setup_entry
 # ===========================================================================
 
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: DuoFernConfigEntry,
@@ -397,6 +400,7 @@ async def async_setup_entry(
 # Device Switch Entity (on/off control)
 # ===========================================================================
 
+
 class DuoFernSwitch(CoordinatorEntity[DuoFernCoordinator], SwitchEntity):
     """A DuoFern switch actor channel as a HA SwitchEntity.
 
@@ -432,7 +436,8 @@ class DuoFernSwitch(CoordinatorEntity[DuoFernCoordinator], SwitchEntity):
 
         channel_label = (
             f" Kanal {self._channel}"
-            if self._channel and self._device_code.has_channels else ""
+            if self._channel and self._device_code.has_channels
+            else ""
         )
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, hex_code)},
@@ -454,7 +459,11 @@ class DuoFernSwitch(CoordinatorEntity[DuoFernCoordinator], SwitchEntity):
     @property
     def available(self) -> bool:
         state = self._device_state
-        return state is not None and state.available and self.coordinator.last_update_success
+        return (
+            state is not None
+            and state.available
+            and self.coordinator.last_update_success
+        )
 
     @property
     def is_on(self) -> bool | None:
@@ -469,7 +478,8 @@ class DuoFernSwitch(CoordinatorEntity[DuoFernCoordinator], SwitchEntity):
         if state is None:
             return {}
         attrs: dict[str, Any] = {
-            k: v for k, v in state.status.readings.items()
+            k: v
+            for k, v in state.status.readings.items()
             if k not in _SKIP_AS_ATTRIBUTE
         }
         if state.status.version:
@@ -496,7 +506,8 @@ class DuoFernSwitch(CoordinatorEntity[DuoFernCoordinator], SwitchEntity):
         if state and state.status.version:
             channel_label = (
                 f" Kanal {self._channel}"
-                if self._channel and self._device_code.has_channels else ""
+                if self._channel and self._device_code.has_channels
+                else ""
             )
             self._attr_device_info = DeviceInfo(
                 identifiers={(DOMAIN, self._hex_code)},
@@ -516,9 +527,8 @@ class DuoFernSwitch(CoordinatorEntity[DuoFernCoordinator], SwitchEntity):
 # Automation Toggle Switch Entity (CONFIG category)
 # ===========================================================================
 
-class DuoFernAutomationSwitch(
-    CoordinatorEntity[DuoFernCoordinator], SwitchEntity
-):
+
+class DuoFernAutomationSwitch(CoordinatorEntity[DuoFernCoordinator], SwitchEntity):
     """A DuoFern automation flag as an on/off SwitchEntity (CONFIG category).
 
     Appears in the device card's "Configuration" section — separate from

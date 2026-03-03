@@ -55,16 +55,16 @@ _LOGGER = logging.getLogger(__name__)
 # Map duofern event names to binary on/off state
 # From %sensorMsg in 30_DUOFERN.pm
 _EVENT_TO_STATE: dict[str, bool] = {
-    "startMotion":    True,
-    "endMotion":      False,
-    "startSmoke":     True,
-    "endSmoke":       False,
-    "startRain":      True,
-    "endRain":        False,
+    "startMotion": True,
+    "endMotion": False,
+    "startSmoke": True,
+    "endSmoke": False,
+    "startRain": True,
+    "endRain": False,
     "startVibration": True,
-    "endVibration":   False,
-    "opened":         True,   # Fensterkontakt: open = True
-    "closed":         False,
+    "endVibration": False,
+    "opened": True,  # Fensterkontakt: open = True
+    "closed": False,
 }
 
 # Device class per device type byte
@@ -145,15 +145,15 @@ async def async_setup_entry(
                         hex_code=hex_code,
                     )
                 )
-                _LOGGER.debug(
-                    "Adding binary sensor entity for device %s", hex_code
-                )
+                _LOGGER.debug("Adding binary sensor entity for device %s", hex_code)
 
         # Obstacle/block sensors for all covers with detection hardware
         if device_state.device_code.is_obstacle_cover:
-            for reading_key, (trans_key, dev_class, icon) in (
-                _COVER_OBSTACLE_SENSORS.items()
-            ):
+            for reading_key, (
+                trans_key,
+                dev_class,
+                icon,
+            ) in _COVER_OBSTACLE_SENSORS.items():
                 entities.append(
                     DuoFernObstacleSensor(
                         coordinator=coordinator,
@@ -167,9 +167,11 @@ async def async_setup_entry(
                 )
             # SX5 additionally has a light curtain sensor
             if device_state.device_code.device_type == 0x4E:
-                for reading_key, (trans_key, dev_class, icon) in (
-                    _SX5_OBSTACLE_SENSORS.items()
-                ):
+                for reading_key, (
+                    trans_key,
+                    dev_class,
+                    icon,
+                ) in _SX5_OBSTACLE_SENSORS.items():
                     entities.append(
                         DuoFernObstacleSensor(
                             coordinator=coordinator,
@@ -182,7 +184,8 @@ async def async_setup_entry(
                         )
                     )
             _LOGGER.debug(
-                "Adding obstacle/block sensors for cover %s", hex_code,
+                "Adding obstacle/block sensors for cover %s",
+                hex_code,
             )
 
     if entities:
@@ -194,9 +197,8 @@ async def async_setup_entry(
 # Event-based binary sensors (motion, smoke, contact)
 # ---------------------------------------------------------------------------
 
-class DuoFernBinarySensor(
-    CoordinatorEntity[DuoFernCoordinator], BinarySensorEntity
-):
+
+class DuoFernBinarySensor(CoordinatorEntity[DuoFernCoordinator], BinarySensorEntity):
     """A DuoFern motion/smoke/contact sensor as a HA BinarySensorEntity.
 
     State is updated via HA event bus (duofern_event) because these devices
@@ -227,10 +229,7 @@ class DuoFernBinarySensor(
         )
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, hex_code)},
-            name=(
-                f"DuoFern {device_state.device_code.device_type_name}"
-                f" ({hex_code})"
-            ),
+            name=(f"DuoFern {device_state.device_code.device_type_name} ({hex_code})"),
             manufacturer="Rademacher",
             model=device_state.device_code.device_type_name,
             via_device=(DOMAIN, coordinator.system_code.hex),
@@ -240,9 +239,7 @@ class DuoFernBinarySensor(
         """Subscribe to DuoFern events on the HA event bus."""
         await super().async_added_to_hass()
         self.async_on_remove(
-            self.hass.bus.async_listen(
-                DUOFERN_EVENT, self._handle_duofern_event
-            )
+            self.hass.bus.async_listen(DUOFERN_EVENT, self._handle_duofern_event)
         )
 
     @property
@@ -296,7 +293,9 @@ class DuoFernBinarySensor(
             self.async_write_ha_state()
             _LOGGER.debug(
                 "Binary sensor %s: %s -> %s",
-                self._hex_code, event_name, new_state,
+                self._hex_code,
+                event_name,
+                new_state,
             )
 
     @callback
@@ -304,16 +303,12 @@ class DuoFernBinarySensor(
         self.async_write_ha_state()
 
 
-
-
 # ---------------------------------------------------------------------------
 # Fenster-Tuer-Kontakt (0xAC) — two entities: opened and tilted
 # ---------------------------------------------------------------------------
 
 
-class DuoFernWindowSensor(
-    CoordinatorEntity[DuoFernCoordinator], BinarySensorEntity
-):
+class DuoFernWindowSensor(CoordinatorEntity[DuoFernCoordinator], BinarySensorEntity):
     """A single binary sensor for the DuoFern Fenster-Tuer-Kontakt (0xAC).
 
     Two instances are created per device:
@@ -341,7 +336,7 @@ class DuoFernWindowSensor(
         coordinator: DuoFernCoordinator,
         device_state: DuoFernDeviceState,
         hex_code: str,
-        sensor_type: str,          # "opened" or "tilted"
+        sensor_type: str,  # "opened" or "tilted"
         translation_key: str,
     ) -> None:
         super().__init__(coordinator)
@@ -354,10 +349,7 @@ class DuoFernWindowSensor(
 
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, hex_code)},
-            name=(
-                f"DuoFern {device_state.device_code.device_type_name}"
-                f" ({hex_code})"
-            ),
+            name=(f"DuoFern {device_state.device_code.device_type_name} ({hex_code})"),
             manufacturer="Rademacher",
             model=device_state.device_code.device_type_name,
             via_device=(DOMAIN, coordinator.system_code.hex),
@@ -367,9 +359,7 @@ class DuoFernWindowSensor(
         """Subscribe to DuoFern events on the HA event bus."""
         await super().async_added_to_hass()
         self.async_on_remove(
-            self.hass.bus.async_listen(
-                DUOFERN_EVENT, self._handle_duofern_event
-            )
+            self.hass.bus.async_listen(DUOFERN_EVENT, self._handle_duofern_event)
         )
 
     @property
@@ -422,13 +412,13 @@ class DuoFernWindowSensor(
     def _handle_coordinator_update(self) -> None:
         self.async_write_ha_state()
 
+
 # ---------------------------------------------------------------------------
 # Cover obstacle / block / lightCurtain binary sensors
 # ---------------------------------------------------------------------------
 
-class DuoFernObstacleSensor(
-    CoordinatorEntity[DuoFernCoordinator], BinarySensorEntity
-):
+
+class DuoFernObstacleSensor(CoordinatorEntity[DuoFernCoordinator], BinarySensorEntity):
     """A status-frame-based binary sensor for SX5 obstacle detection.
 
     These entities are read directly from the SX5 status frame (format 24a)

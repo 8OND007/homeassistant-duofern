@@ -67,15 +67,9 @@ async def async_setup_entry(
     # Add dusk/dawn/toggle buttons for every cover device
     for hex_code, device_state in coordinator.data.devices.items():
         if device_state.device_code.is_cover:
-            entities.append(
-                DuoFernDuskButton(coordinator, device_state.device_code)
-            )
-            entities.append(
-                DuoFernDawnButton(coordinator, device_state.device_code)
-            )
-            entities.append(
-                DuoFernToggleButton(coordinator, device_state.device_code)
-            )
+            entities.append(DuoFernDuskButton(coordinator, device_state.device_code))
+            entities.append(DuoFernDawnButton(coordinator, device_state.device_code))
+            entities.append(DuoFernToggleButton(coordinator, device_state.device_code))
 
     # Reset buttons for all actuators (covers, switches, dimmers)
     # remotePair/remoteUnpair for all
@@ -85,7 +79,12 @@ async def async_setup_entry(
 
         # reset:settings,full for all devices that support it
         # From 30_DUOFERN.pm %setsBasic / %setsReset: covers, switches, dimmers
-        if dev_code.is_cover or dev_code.is_switch or dev_code.is_light or dev_code.is_climate:
+        if (
+            dev_code.is_cover
+            or dev_code.is_switch
+            or dev_code.is_light
+            or dev_code.is_climate
+        ):
             entities.append(DuoFernResetSettingsButton(coordinator, dev_code))
             entities.append(DuoFernResetFullButton(coordinator, dev_code))
 
@@ -107,7 +106,11 @@ async def async_setup_entry(
         entities.append(DuoFernGetStatusButton(coordinator, dev_code))
 
         # Umweltsensor 00 channel: getWeather, getTime, getConfig, writeConfig, setTime
-        if dev_type == 0x69 and hasattr(dev_code, 'channel') and str(getattr(dev_code, 'channel', '')) == '00':
+        if (
+            dev_type == 0x69
+            and hasattr(dev_code, "channel")
+            and str(getattr(dev_code, "channel", "")) == "00"
+        ):
             entities.append(DuoFernGetWeatherButton(coordinator, dev_code))
             entities.append(DuoFernGetTimeButton(coordinator, dev_code))
             entities.append(DuoFernGetConfigButton(coordinator, dev_code))
@@ -121,6 +124,7 @@ async def async_setup_entry(
 # Helper: device info for the stick
 # ---------------------------------------------------------------------------
 
+
 def _stick_device_info(
     coordinator: DuoFernCoordinator, system_code_hex: str
 ) -> DeviceInfo:
@@ -131,18 +135,15 @@ def _stick_device_info(
 # Stick control buttons
 # ---------------------------------------------------------------------------
 
-class DuoFernPairButton(
-    CoordinatorEntity[DuoFernCoordinator], ButtonEntity
-):
+
+class DuoFernPairButton(CoordinatorEntity[DuoFernCoordinator], ButtonEntity):
     """Button to start 60s pairing window on the DuoFern stick."""
 
     _attr_has_entity_name = True
     _attr_translation_key = "start_pairing"
     _attr_icon = "mdi:link-plus"
 
-    def __init__(
-        self, coordinator: DuoFernCoordinator, system_code_hex: str
-    ) -> None:
+    def __init__(self, coordinator: DuoFernCoordinator, system_code_hex: str) -> None:
         super().__init__(coordinator)
         self._attr_unique_id = f"{DOMAIN}_{system_code_hex}_pair"
         self._attr_device_info = _stick_device_info(coordinator, system_code_hex)
@@ -160,18 +161,14 @@ class DuoFernPairButton(
         await self.coordinator.async_start_pairing()
 
 
-class DuoFernUnpairButton(
-    CoordinatorEntity[DuoFernCoordinator], ButtonEntity
-):
+class DuoFernUnpairButton(CoordinatorEntity[DuoFernCoordinator], ButtonEntity):
     """Button to start 60s unpairing window on the DuoFern stick."""
 
     _attr_has_entity_name = True
     _attr_translation_key = "start_unpairing"
     _attr_icon = "mdi:link-off"
 
-    def __init__(
-        self, coordinator: DuoFernCoordinator, system_code_hex: str
-    ) -> None:
+    def __init__(self, coordinator: DuoFernCoordinator, system_code_hex: str) -> None:
         super().__init__(coordinator)
         self._attr_unique_id = f"{DOMAIN}_{system_code_hex}_unpair"
         self._attr_device_info = _stick_device_info(coordinator, system_code_hex)
@@ -188,18 +185,14 @@ class DuoFernUnpairButton(
         await self.coordinator.async_start_unpairing()
 
 
-class DuoFernStatusButton(
-    CoordinatorEntity[DuoFernCoordinator], ButtonEntity
-):
+class DuoFernStatusButton(CoordinatorEntity[DuoFernCoordinator], ButtonEntity):
     """Button to request fresh status from all paired DuoFern devices."""
 
     _attr_has_entity_name = True
     _attr_translation_key = "request_status"
     _attr_icon = "mdi:refresh"
 
-    def __init__(
-        self, coordinator: DuoFernCoordinator, system_code_hex: str
-    ) -> None:
+    def __init__(self, coordinator: DuoFernCoordinator, system_code_hex: str) -> None:
         super().__init__(coordinator)
         self._attr_unique_id = f"{DOMAIN}_{system_code_hex}_status"
         self._attr_device_info = _stick_device_info(coordinator, system_code_hex)
@@ -213,9 +206,8 @@ class DuoFernStatusButton(
 # Cover dusk / dawn buttons
 # ---------------------------------------------------------------------------
 
-class DuoFernDuskButton(
-    CoordinatorEntity[DuoFernCoordinator], ButtonEntity
-):
+
+class DuoFernDuskButton(CoordinatorEntity[DuoFernCoordinator], ButtonEntity):
     """Move a cover to its programmed dusk (closing) position.
 
     Dusk position is typically slower/quieter than position=0 because
@@ -249,9 +241,7 @@ class DuoFernDuskButton(
         await self.coordinator.async_cover_dusk(self._device_code)
 
 
-class DuoFernDawnButton(
-    CoordinatorEntity[DuoFernCoordinator], ButtonEntity
-):
+class DuoFernDawnButton(CoordinatorEntity[DuoFernCoordinator], ButtonEntity):
     """Move a cover to its programmed dawn (opening) position.
 
     Dawn position is the device's stored program for morning opening,
@@ -289,9 +279,8 @@ class DuoFernDawnButton(
 # Cover toggle button
 # ---------------------------------------------------------------------------
 
-class DuoFernToggleButton(
-    CoordinatorEntity[DuoFernCoordinator], ButtonEntity
-):
+
+class DuoFernToggleButton(CoordinatorEntity[DuoFernCoordinator], ButtonEntity):
     """Toggle cover direction (reverse current movement / change direction).
 
     From 30_DUOFERN.pm: toggle => {cmd => {noArg => "071A0000000000000000"}}
@@ -322,9 +311,8 @@ class DuoFernToggleButton(
 # Reset buttons (settings / full) — CONFIG category
 # ---------------------------------------------------------------------------
 
-class DuoFernResetSettingsButton(
-    CoordinatorEntity[DuoFernCoordinator], ButtonEntity
-):
+
+class DuoFernResetSettingsButton(CoordinatorEntity[DuoFernCoordinator], ButtonEntity):
     """Reset device settings (keeps pairing).
 
     From 30_DUOFERN.pm: reset => {settings => "0815CB00000000000000"}
@@ -351,9 +339,7 @@ class DuoFernResetSettingsButton(
         await self.coordinator.async_reset(self._device_code, "settings")
 
 
-class DuoFernResetFullButton(
-    CoordinatorEntity[DuoFernCoordinator], ButtonEntity
-):
+class DuoFernResetFullButton(CoordinatorEntity[DuoFernCoordinator], ButtonEntity):
     """Full factory reset of the device (loses pairing).
 
     From 30_DUOFERN.pm: reset => {full => "0815CC00000000000000"}
@@ -384,9 +370,8 @@ class DuoFernResetFullButton(
 # Remote pair / unpair buttons (CONFIG category, for Handsender / Wandtaster)
 # ---------------------------------------------------------------------------
 
-class DuoFernRemotePairButton(
-    CoordinatorEntity[DuoFernCoordinator], ButtonEntity
-):
+
+class DuoFernRemotePairButton(CoordinatorEntity[DuoFernCoordinator], ButtonEntity):
     """Initiate remote pairing with a Handsender or Wandtaster.
 
     From 30_DUOFERN.pm: remotePair => uses duoCommand2
@@ -413,9 +398,7 @@ class DuoFernRemotePairButton(
         await self.coordinator.async_remote_pair(self._device_code)
 
 
-class DuoFernRemoteUnpairButton(
-    CoordinatorEntity[DuoFernCoordinator], ButtonEntity
-):
+class DuoFernRemoteUnpairButton(CoordinatorEntity[DuoFernCoordinator], ButtonEntity):
     """Remove remote pairing with a Handsender or Wandtaster.
 
     From 30_DUOFERN.pm: remoteUnpair => uses duoCommand2
@@ -446,9 +429,8 @@ class DuoFernRemoteUnpairButton(
 # Thermostat temp up / temp down buttons
 # ---------------------------------------------------------------------------
 
-class DuoFernTempUpButton(
-    CoordinatorEntity[DuoFernCoordinator], ButtonEntity
-):
+
+class DuoFernTempUpButton(CoordinatorEntity[DuoFernCoordinator], ButtonEntity):
     """Increment thermostat target temperature by one step.
 
     From 30_DUOFERN.pm: tempUp => {noArg => "0718tt00000000000000"}
@@ -474,9 +456,7 @@ class DuoFernTempUpButton(
         await self.coordinator.async_temp_up(self._device_code)
 
 
-class DuoFernTempDownButton(
-    CoordinatorEntity[DuoFernCoordinator], ButtonEntity
-):
+class DuoFernTempDownButton(CoordinatorEntity[DuoFernCoordinator], ButtonEntity):
     """Decrement thermostat target temperature by one step.
 
     From 30_DUOFERN.pm: tempDown => {noArg => "0719tt00000000000000"}
@@ -506,9 +486,8 @@ class DuoFernTempDownButton(
 # Per-device getStatus button
 # ---------------------------------------------------------------------------
 
-class DuoFernGetStatusButton(
-    CoordinatorEntity[DuoFernCoordinator], ButtonEntity
-):
+
+class DuoFernGetStatusButton(CoordinatorEntity[DuoFernCoordinator], ButtonEntity):
     """Request current status from a single DuoFern device.
 
     From 30_DUOFERN.pm: getStatus => commandsStatus{getStatus} = "0F"
@@ -536,9 +515,8 @@ class DuoFernGetStatusButton(
 # Umweltsensor weather station buttons
 # ---------------------------------------------------------------------------
 
-class DuoFernGetWeatherButton(
-    CoordinatorEntity[DuoFernCoordinator], ButtonEntity
-):
+
+class DuoFernGetWeatherButton(CoordinatorEntity[DuoFernCoordinator], ButtonEntity):
     """Request weather data from Umweltsensor weather station.
 
     From 30_DUOFERN.pm: getWeather => commandsStatus{getWeather} = "13"
@@ -561,9 +539,7 @@ class DuoFernGetWeatherButton(
         await self.coordinator.async_get_weather(self._device_code)
 
 
-class DuoFernGetTimeButton(
-    CoordinatorEntity[DuoFernCoordinator], ButtonEntity
-):
+class DuoFernGetTimeButton(CoordinatorEntity[DuoFernCoordinator], ButtonEntity):
     """Request time from Umweltsensor.
 
     From 30_DUOFERN.pm: getTime => commandsStatus{getTime} = "10"
@@ -586,9 +562,7 @@ class DuoFernGetTimeButton(
         await self.coordinator.async_get_time(self._device_code)
 
 
-class DuoFernGetConfigButton(
-    CoordinatorEntity[DuoFernCoordinator], ButtonEntity
-):
+class DuoFernGetConfigButton(CoordinatorEntity[DuoFernCoordinator], ButtonEntity):
     """Request configuration from Umweltsensor (register dump).
 
     From 30_DUOFERN.pm:
@@ -612,9 +586,7 @@ class DuoFernGetConfigButton(
         await self.coordinator.async_get_weather_config(self._device_code)
 
 
-class DuoFernSetTimeButton(
-    CoordinatorEntity[DuoFernCoordinator], ButtonEntity
-):
+class DuoFernSetTimeButton(CoordinatorEntity[DuoFernCoordinator], ButtonEntity):
     """Sync current system time to Umweltsensor.
 
     From 30_DUOFERN.pm:
@@ -637,9 +609,7 @@ class DuoFernSetTimeButton(
         await self.coordinator.async_set_time(self._device_code)
 
 
-class DuoFernWriteConfigButton(
-    CoordinatorEntity[DuoFernCoordinator], ButtonEntity
-):
+class DuoFernWriteConfigButton(CoordinatorEntity[DuoFernCoordinator], ButtonEntity):
     """Write all stored configuration registers to the Umweltsensor.
 
     From 30_DUOFERN.pm:

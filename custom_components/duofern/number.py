@@ -53,6 +53,7 @@ _LOGGER = logging.getLogger(__name__)
 @dataclass(frozen=True)
 class DuoFernNumberDescription(NumberEntityDescription):
     """Extends NumberEntityDescription with device type filter."""
+
     reading_key: str = ""
     device_types: frozenset[int] = frozenset()
     coordinator_method: str = ""
@@ -64,6 +65,8 @@ _ALL_COVERS = frozenset({0x40, 0x41, 0x42, 0x47, 0x49, 0x4B, 0x4C, 0x4E, 0x61, 0
 _TROLL_TYPES = frozenset({0x42, 0x47, 0x49, 0x4B, 0x4C, 0x70})
 # Blinds types only (slat entities — 0x42|4B|4C|70 per FHEM dispatch)
 _BLINDS_TYPES = frozenset({0x42, 0x4B, 0x4C, 0x70})
+# Running time for covers: setsTroll dispatch = 42|47|4B|4C|70, NOT 0x49
+_RUNNING_TIME_COVER_TYPES = frozenset({0x42, 0x47, 0x4B, 0x4C, 0x70})
 
 
 NUMBER_DESCRIPTIONS: tuple[DuoFernNumberDescription, ...] = (
@@ -96,7 +99,7 @@ NUMBER_DESCRIPTIONS: tuple[DuoFernNumberDescription, ...] = (
         device_types=_ALL_COVERS - frozenset({0x4E}),
         coordinator_method="async_set_ventilating_position",
     ),
-    # --- Blinds (Troll types when blindsMode=on — always create, availability via state) ---
+    # --- Blinds (Troll types when blindsMode=on) ---
     DuoFernNumberDescription(
         key="slatPosition",
         translation_key="slat_position",
@@ -151,7 +154,7 @@ NUMBER_DESCRIPTIONS: tuple[DuoFernNumberDescription, ...] = (
         native_unit_of_measurement="s",
         entity_category=EntityCategory.CONFIG,
         icon="mdi:timer-settings",
-        device_types=_TROLL_TYPES,
+        device_types=_RUNNING_TIME_COVER_TYPES,
         coordinator_method="async_set_running_time",
     ),
     # --- Switch / Dimmer: stairwell time ---
@@ -336,11 +339,9 @@ async def async_setup_entry(
     entity_registry = er.async_get(hass)
     valid_unique_ids = {e._attr_unique_id for e in entities}
     stale = [
-        entry for entry in er.async_entries_for_config_entry(
-            entity_registry, entry.entry_id
-        )
-        if entry.domain == "number"
-        and entry.unique_id not in valid_unique_ids
+        entry
+        for entry in er.async_entries_for_config_entry(entity_registry, entry.entry_id)
+        if entry.domain == "number" and entry.unique_id not in valid_unique_ids
     ]
     for stale_entry in stale:
         entity_registry.async_remove(stale_entry.entity_id)
@@ -403,9 +404,7 @@ class DuoFernNumber(CoordinatorEntity[DuoFernCoordinator], NumberEntity):
 
     async def async_set_native_value(self, value: float) -> None:
         """Send the new value to the device."""
-        method = getattr(
-            self.coordinator, self.entity_description.coordinator_method
-        )
+        method = getattr(self.coordinator, self.entity_description.coordinator_method)
         await method(self._device_code, int(value))
 
     @callback

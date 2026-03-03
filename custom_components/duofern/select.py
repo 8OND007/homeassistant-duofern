@@ -43,6 +43,7 @@ _LOGGER = logging.getLogger(__name__)
 @dataclass(frozen=True)
 class DuoFernSelectDescription(SelectEntityDescription):
     """Extends SelectEntityDescription with device type filter and command."""
+
     reading_key: str = ""
     device_types: frozenset[int] = frozenset()
     # Async method name on coordinator, signature: (device_code, value)
@@ -126,7 +127,29 @@ SELECT_DESCRIPTIONS: tuple[DuoFernSelectDescription, ...] = (
         translation_key="interval",
         reading_key="interval",
         name="Transmit Interval",
-        options=["off","1","2","3","4","5","6","7","8","9","10","15","20","30","40","50","60","70","80","90","100"],
+        options=[
+            "off",
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "7",
+            "8",
+            "9",
+            "10",
+            "15",
+            "20",
+            "30",
+            "40",
+            "50",
+            "60",
+            "70",
+            "80",
+            "90",
+            "100",
+        ],
         entity_category=EntityCategory.CONFIG,
         icon="mdi:timer-outline",
         device_types=frozenset({0x69}),
@@ -207,9 +230,7 @@ class DuoFernSelect(CoordinatorEntity[DuoFernCoordinator], SelectEntity):
 
     async def async_select_option(self, option: str) -> None:
         """Send the selected option to the device."""
-        method = getattr(
-            self.coordinator, self.entity_description.coordinator_method
-        )
+        method = getattr(self.coordinator, self.entity_description.coordinator_method)
         await method(self._device_code, option)
 
     @callback
