@@ -52,8 +52,8 @@ _REMOTE_CHANNELS: dict[int, list[str]] = {
 
 TRIGGER_SCHEMA = DEVICE_TRIGGER_BASE_SCHEMA.extend(
     {
-        vol.Required(CONF_TYPE): vol.In(TRIGGER_TYPES),
-        vol.Required(CONF_SUBTYPE): str,
+        vol.Required(CONF_TYPE): str,  # "channel_01" .. "channel_06"
+        vol.Required(CONF_SUBTYPE): vol.In(TRIGGER_TYPES),  # action
     }
 )
 
@@ -94,15 +94,15 @@ async def async_get_triggers(hass: HomeAssistant, device_id: str) -> list[dict]:
     channels = _REMOTE_CHANNELS.get(device_type, ["01"])
     triggers: list[dict] = []
 
-    for action in TRIGGER_TYPES:
-        for channel in channels:
+    for channel in channels:
+        for action in TRIGGER_TYPES:
             triggers.append(
                 {
                     CONF_PLATFORM: "device",
                     CONF_DOMAIN: DOMAIN,
                     CONF_DEVICE_ID: device_id,
-                    CONF_TYPE: action,
-                    CONF_SUBTYPE: f"channel_{channel}",
+                    CONF_TYPE: f"channel_{channel}",
+                    CONF_SUBTYPE: action,
                 }
             )
 
@@ -125,10 +125,9 @@ async def async_attach_trigger(
         return lambda: None
 
     hex_code, _device_type = result
-    action_type: str = config[CONF_TYPE]
-    subtype: str = config[CONF_SUBTYPE]
-    # subtype is "channel_01" → channel is "01"
-    channel = subtype.replace("channel_", "")
+    channel_type: str = config[CONF_TYPE]  # e.g. "channel_01"
+    action_type: str = config[CONF_SUBTYPE]  # e.g. "up"
+    channel = channel_type.replace("channel_", "")
 
     event_config = event_trigger.TRIGGER_SCHEMA(
         {

@@ -17,6 +17,7 @@ import logging
 
 from homeassistant.components.event import EventEntity
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -86,6 +87,7 @@ class DuoFernRemoteEvent(CoordinatorEntity[DuoFernCoordinator], EventEntity):
             name=(f"DuoFern {self._device_code.device_type_name} ({hex_code})"),
             manufacturer="Rademacher",
             model=self._device_code.device_type_name,
+            serial_number=hex_code,
             via_device=(DOMAIN, coordinator.system_code.hex),
         )
 
@@ -95,6 +97,12 @@ class DuoFernRemoteEvent(CoordinatorEntity[DuoFernCoordinator], EventEntity):
         self.async_on_remove(
             self.hass.bus.async_listen(DUOFERN_EVENT, self._handle_duofern_event)
         )
+        # Ensure serial_number is always set in device registry,
+        # even if device was previously registered without it.
+        device_reg = dr.async_get(self.hass)
+        device = device_reg.async_get_device(identifiers={(DOMAIN, self._hex_code)})
+        if device and device.serial_number != self._hex_code:
+            device_reg.async_update_device(device.id, serial_number=self._hex_code)
 
     @callback
     def _handle_duofern_event(self, event) -> None:
