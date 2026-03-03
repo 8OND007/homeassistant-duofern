@@ -269,23 +269,46 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
         From 30_DUOFERN.pm:
           #Status Nachricht Aktor
           if ($msg =~ m/0FFF0F.{38}/) { ... }
+
+        For multi-channel devices (e.g. 0x43 Universalaktor), mirrors FHEM:
+          iterate over all registered channels, parse with channel-specific
+          position specs, and update each channel's state independently.
         """
         device_code = DuoFernDecoder.extract_device_code_from_status(frame)
-        parsed = DuoFernDecoder.parse_status(frame)
-
         hex_code = device_code.hex
-        state = self.data.devices.get(hex_code)
-        if state is None:
-            # Unknown device — create a placeholder entry
-            _LOGGER.debug("Status from unknown device %s — ignoring", hex_code)
-            return
 
-        state.status = parsed
-        state.available = True
-        state.last_seen = datetime.now().isoformat(timespec="seconds")
+        channels = DEVICE_CHANNELS.get(device_code.device_type)
+        if channels:
+            # Multi-channel device: update each channel with channel-specific parsing
+            any_found = False
+            for ch in channels:
+                full_hex = hex_code + ch
+                state = self.data.devices.get(full_hex)
+                if state is None:
+                    continue
+                any_found = True
+                parsed = DuoFernDecoder.parse_status(frame, channel=ch)
+                state.status = parsed
+                state.available = True
+                state.last_seen = datetime.now().isoformat(timespec="seconds")
+            if not any_found:
+                _LOGGER.debug(
+                    "Status from unknown channel device %s — ignoring", hex_code
+                )
+                return
+        else:
+            # Single device
+            state = self.data.devices.get(hex_code)
+            if state is None:
+                _LOGGER.debug("Status from unknown device %s — ignoring", hex_code)
+                return
+            parsed = DuoFernDecoder.parse_status(frame)
+            state.status = parsed
+            state.available = True
+            state.last_seen = datetime.now().isoformat(timespec="seconds")
 
-        # Fire obstacle/block events for automation triggers (e.g. SX5 garage)
-        self._fire_obstacle_events(hex_code, parsed)
+            # Fire obstacle/block events for automation triggers (e.g. SX5 garage)
+            self._fire_obstacle_events(hex_code, parsed)
 
         self.async_set_updated_data(self.data)
 
