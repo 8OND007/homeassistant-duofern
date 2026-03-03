@@ -55,6 +55,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .const import (
+    DEVICE_CHANNELS,
     DOMAIN,
     STATUS_RETRY_COUNT,
 )
@@ -152,8 +153,6 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
         Multi-channel devices (e.g. Universalaktor 0x43) are registered as
         base device + one DuoFernDeviceState per channel.
         """
-        from .const import DEVICE_CHANNELS
-
         for device in self._paired_devices:
             if device.has_channels:
                 # Register each channel as a separate entity
