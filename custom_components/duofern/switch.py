@@ -42,6 +42,7 @@ from homeassistant.components.switch import (
 )
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -434,7 +435,7 @@ class DuoFernSwitch(CoordinatorEntity[DuoFernCoordinator], SwitchEntity):
         else:
             self._attr_device_class = SwitchDeviceClass.SWITCH
 
-        channel_label = (
+        self._channel_label = (
             f" Kanal {self._channel}"
             if self._channel and self._device_code.has_channels
             else ""
@@ -510,6 +511,14 @@ class DuoFernSwitch(CoordinatorEntity[DuoFernCoordinator], SwitchEntity):
 
     @callback
     def _handle_coordinator_update(self) -> None:
+        state = self._device_state
+        if state and state.status.version:
+            device_reg = dr.async_get(self.hass)
+            device = device_reg.async_get_device(identifiers={(DOMAIN, self._hex_code)})
+            if device and device.sw_version != state.status.version:
+                device_reg.async_update_device(
+                    device.id, sw_version=state.status.version
+                )
         self.async_write_ha_state()
 
 
@@ -606,4 +615,12 @@ class DuoFernAutomationSwitch(CoordinatorEntity[DuoFernCoordinator], SwitchEntit
 
     @callback
     def _handle_coordinator_update(self) -> None:
+        state = self._device_state
+        if state and state.status.version:
+            device_reg = dr.async_get(self.hass)
+            device = device_reg.async_get_device(identifiers={(DOMAIN, self._hex_code)})
+            if device and device.sw_version != state.status.version:
+                device_reg.async_update_device(
+                    device.id, sw_version=state.status.version
+                )
         self.async_write_ha_state()

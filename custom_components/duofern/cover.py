@@ -54,6 +54,7 @@ from homeassistant.components.cover import (
     CoverEntityFeature,
 )
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -317,4 +318,11 @@ class DuoFernCover(CoordinatorEntity[DuoFernCoordinator], CoverEntity):
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator."""
         state = self._device_state
+        if state and state.status.version:
+            device_reg = dr.async_get(self.hass)
+            device = device_reg.async_get_device(identifiers={(DOMAIN, self._hex_code)})
+            if device and device.sw_version != state.status.version:
+                device_reg.async_update_device(
+                    device.id, sw_version=state.status.version
+                )
         self.async_write_ha_state()

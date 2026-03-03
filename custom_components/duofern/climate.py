@@ -43,6 +43,7 @@ from homeassistant.components.climate import (
 )
 from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -252,4 +253,11 @@ class DuoFernClimate(CoordinatorEntity[DuoFernCoordinator], ClimateEntity):
     @callback
     def _handle_coordinator_update(self) -> None:
         state = self._device_state
+        if state and state.status.version:
+            device_reg = dr.async_get(self.hass)
+            device = device_reg.async_get_device(identifiers={(DOMAIN, self._hex_code)})
+            if device and device.sw_version != state.status.version:
+                device_reg.async_update_device(
+                    device.id, sw_version=state.status.version
+                )
         self.async_write_ha_state()
