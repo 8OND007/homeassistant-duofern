@@ -90,6 +90,10 @@ class DuoFernDeviceState:
     last_seen: str | None = None
     last_paired: str | None = None
     last_unpaired: str | None = None
+    # Pending HSA changes: key -> (old_value_at_set_time, new_value)
+    # Populated by _schedule_hsa_update(), consumed by _send_hsa_if_pending()
+    # when the 0xE1 device next sends a status frame.
+    hsa_pending: dict[str, tuple[object, object]] = field(default_factory=dict)
 
 
 @dataclass
@@ -329,6 +333,11 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
 
             # Fire obstacle/block events for automation triggers (e.g. SX5 garage)
             self._fire_obstacle_events(hex_code, parsed)
+
+            # 0xE1 Heizkörperantrieb: device-initiated protocol — send any
+            # queued HSA changes now that the device has checked in.
+            if device_code.device_type == 0xE1 and state.hsa_pending:
+                asyncio.create_task(self._send_hsa_if_pending(device_code))
 
         self.async_set_updated_data(self.data)
 
@@ -747,12 +756,20 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
         self._set_level(device_code, level)
 
     async def async_set_desired_temp(self, device_code: DuoFernId, temp: float) -> None:
-        """Set desired temperature for Raumthermostat / HSA.
+        """Set desired temperature.
 
-        From 30_DUOFERN.pm:
-          desired-temp => "0722tt0000wwww000000"
-          ww = (temp * 10 + 400) as 16-bit big-endian
+        0xE1 Heizkörperantrieb: queues change for next HSA status frame.
+          From 30_DUOFERN.pm %commandsHSA: desired-temp bitFrom=17, changeFlag=23,
+          min=4, max=28, step=0.5. Sent via duoSetHSA on next device contact.
+
+        0x73 Raumthermostat: sends immediately via dedicated command frame.
+          From 30_DUOFERN.pm: desired-temp => "0722tt0000wwww000000"
         """
+        state = self.data.devices.get(device_code.hex)
+        if state is not None and state.device_code.device_type == 0xE1:
+            self._schedule_hsa_update(device_code, "desired-temp", temp)
+            return
+        # 0x73 or other: send immediately
         if self._stick is None:
             return
         frame = DuoFernEncoder.build_desired_temp_command(
@@ -784,11 +801,20 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
     async def async_set_automation(
         self, device_code: DuoFernId, name: str, enable: bool
     ) -> None:
-        """Set an automation reading on/off (timeAutomatic, manualMode, etc.).
+        """Set an automation on/off.
 
-        Maps the automation name to the correct FHEM command bytes.
+        For 0xE1 Heizkörperantrieb: manualMode and timeAutomatic are HSA
+        commands — queued and sent on next device status frame via duoSetHSA.
+        From 30_DUOFERN.pm %commandsHSA: manualMode bitFrom=8, timeAutomatic bitFrom=9.
+
+        For all other devices: sends generic command frame immediately.
         From 30_DUOFERN.pm %commands — FD = on, FE = off.
         """
+        state = self.data.devices.get(device_code.hex)
+        if state is not None and state.device_code.device_type == 0xE1:
+            if name in ("manualMode", "timeAutomatic"):
+                self._schedule_hsa_update(device_code, name, "on" if enable else "off")
+                return
         # Lookup table: name -> (on_bytes, off_bytes)
         AUTOMATION_COMMANDS: dict[str, tuple[str, str]] = {
             "timeAutomatic": ("080400FD000000000000", "080400FE000000000000"),
@@ -1122,34 +1148,170 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
         frame = DuoFernEncoder.build_remote_unpair(device_code)
         await self._stick.send_command(frame)
 
+    # ------------------------------------------------------------------
+    # HSA (Heizkörperantrieb 0xE1) — device-initiated protocol
+    # ------------------------------------------------------------------
+    #
+    # The 0xE1 Heizkörperantrieb uses a device-initiated protocol:
+    #   1. User sets a value → store pending change, update UI optimistically,
+    #      do NOT send anything to the device yet.
+    #   2. Device sends periodic status frame → _handle_status() calls
+    #      _send_hsa_if_pending() which compares pending old values with what
+    #      the device currently reports, builds the duoSetHSA frame, and sends.
+    #
+    # This mirrors FHEM's %commandsHSA / HSAold / HSAtimer logic exactly.
+    # From 30_DUOFERN.pm lines 706-728 (set handler) and 1213-1255 (response).
+
+    # commandsHSA bit layout — mirrors 30_DUOFERN.pm %commandsHSA
+    _HSA_COMMANDS: dict[str, dict] = {
+        "sendingInterval": {
+            "bit_from": 0,
+            "change_flag": 7,
+            "min": 0,
+            "max": 60,
+            "step": 1,
+        },
+        "manualMode": {"bit_from": 8, "change_flag": 10},
+        "timeAutomatic": {"bit_from": 9, "change_flag": 11},
+        "windowContact": {"bit_from": 12, "change_flag": 13},
+        "desired-temp": {
+            "bit_from": 17,
+            "change_flag": 23,
+            "min": 4,
+            "max": 28,
+            "step": 0.5,
+        },
+    }
+
+    def _schedule_hsa_update(
+        self,
+        device_code: DuoFernId,
+        key: str,
+        new_value: object,
+    ) -> None:
+        """Queue an HSA change to be sent on the next device status frame.
+
+        Stores (old_reading_value, new_value) in state.hsa_pending so that
+        _send_hsa_if_pending() can check whether the device value has drifted
+        before applying the change (mirrors FHEM HSAold logic).
+
+        Also updates readings immediately for optimistic UI display.
+        """
+        state = self.data.devices.get(device_code.hex)
+        if state is None:
+            _LOGGER.warning("_schedule_hsa_update: unknown device %s", device_code.hex)
+            return
+
+        # Store old value only the first time (FHEM: if(!exists HSAold{key}))
+        if key not in state.hsa_pending:
+            old_val = state.status.readings.get(key, 0)
+            state.hsa_pending[key] = (old_val, new_value)
+        else:
+            # Already pending — just update the target value, keep old_val
+            old_val, _ = state.hsa_pending[key]
+            state.hsa_pending[key] = (old_val, new_value)
+
+        # Optimistic UI update so entity shows new value immediately
+        state.status.readings[key] = new_value
+        self.async_set_updated_data(self.data)
+        _LOGGER.debug(
+            "HSA %s: queued %s=%s (was %s), waiting for device status frame",
+            device_code.hex,
+            key,
+            new_value,
+            old_val,
+        )
+
+    async def _send_hsa_if_pending(self, device_code: DuoFernId) -> None:
+        """Build and send duoSetHSA if there are queued changes for this device.
+
+        Called from _handle_status() when a 0xE1 status frame arrives.
+        Mirrors FHEM lines 1213-1255.
+        """
+        state = self.data.devices.get(device_code.hex)
+        if state is None or not state.hsa_pending:
+            return
+        if self._stick is None:
+            return
+
+        set_value = 0
+        pending = dict(state.hsa_pending)  # snapshot
+
+        for key, (old_val, new_val) in pending.items():
+            cmd = self._HSA_COMMANDS.get(key)
+            if cmd is None:
+                _LOGGER.warning("_send_hsa_if_pending: unknown HSA key %s", key)
+                continue
+
+            # What does the device currently report for this key?
+            is_value = state.status.readings.get(key, 0)
+
+            # changeFlag=1 if device value matches what it was when user set,
+            # meaning the device hasn't changed independently — safe to apply.
+            # windowContact is never in status frame → always changeFlag=1.
+            if key == "windowContact" or str(old_val) == str(is_value):
+                change_flag = 1
+            else:
+                change_flag = 0
+                _LOGGER.debug(
+                    "HSA %s: %s changed independently (%s→%s), not applying",
+                    device_code.hex,
+                    key,
+                    old_val,
+                    is_value,
+                )
+
+            # Build raw value
+            if "min" in cmd:
+                raw_value = int((float(new_val) - cmd["min"]) / cmd["step"])
+            else:
+                raw_value = 1 if str(new_val) in ("on", "True", "1", "true") else 0
+
+            set_value |= (raw_value << cmd["bit_from"]) | (
+                change_flag << cmd["change_flag"]
+            )
+
+        # HSAtimer always 0 from HA (we don't support timed temp changes)
+        # set_value |= (0 << 16)
+
+        # Only send if there's something to do (mirrors FHEM forceResponse check)
+        force_response = state.status.readings.get("forceResponse", 0)
+        if set_value + int(force_response or 0) > 0:
+            frame = DuoFernEncoder.build_hsa_command(set_value, device_code)
+            await self._stick.send_command(frame)
+            _LOGGER.info(
+                "Sent duoSetHSA to %s: setValue=0x%06X (keys: %s)",
+                device_code.hex,
+                set_value,
+                list(pending.keys()),
+            )
+
+        # Clear pending regardless (mirrors FHEM delete HSAold)
+        state.hsa_pending.clear()
+
     async def async_set_window_contact(
         self, device_code: DuoFernId, enable: bool
     ) -> None:
-        """Set windowContact for HSA (Heizkörperantrieb).
+        """Queue windowContact change for the next HSA status frame.
 
-        From 30_DUOFERN.pm %commandsHSA:
-          windowContact: bitFrom=12, changeFlag=13
-        This is stored as a reading and sent in the next HSA command frame.
-        We optimistically store and let the next desired-temp send include it.
+        From 30_DUOFERN.pm %commandsHSA: windowContact bitFrom=12, changeFlag=13.
+        windowContact is NEVER reported back in the status frame, so changeFlag
+        is always 1 (FHEM: $key eq "windowContact" special-case, line 1227).
         """
-        state = self.data.devices.get(device_code.hex)
-        if state:
-            state.status.readings["windowContact"] = "on" if enable else "off"
-            self.async_set_updated_data(self.data)
+        self._schedule_hsa_update(
+            device_code, "windowContact", "on" if enable else "off"
+        )
 
     async def async_set_sending_interval(
         self, device_code: DuoFernId, value: int
     ) -> None:
-        """Set HSA sending interval (1-60 minutes).
+        """Queue sendingInterval change for the next HSA status frame.
 
         From 30_DUOFERN.pm %commandsHSA:
           sendingInterval: bitFrom=0, changeFlag=7, min=0, max=60, step=1
-        Stored as reading, included in next HSA status frame.
         """
-        state = self.data.devices.get(device_code.hex)
-        if state:
-            state.status.readings["sendingInterval"] = max(0, min(60, value))
-            self.async_set_updated_data(self.data)
+        clamped = max(0, min(60, value))
+        self._schedule_hsa_update(device_code, "sendingInterval", clamped)
 
     async def async_set_mode_change(self, device_code: DuoFernId) -> None:
         """Toggle mode change for switch actors / dimmers.

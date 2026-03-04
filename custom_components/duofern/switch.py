@@ -45,6 +45,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import DuoFernConfigEntry
@@ -538,11 +539,18 @@ class DuoFernSwitch(CoordinatorEntity[DuoFernCoordinator], SwitchEntity):
 # ===========================================================================
 
 
-class DuoFernAutomationSwitch(CoordinatorEntity[DuoFernCoordinator], SwitchEntity):
+class DuoFernAutomationSwitch(
+    CoordinatorEntity[DuoFernCoordinator], SwitchEntity, RestoreEntity
+):
     """A DuoFern automation flag as an on/off SwitchEntity (CONFIG category).
 
     Appears in the device card's "Configuration" section — separate from
     the main controls. The current state is read from device status readings.
+
+    For most switches, the device reports its state in every status frame.
+    windowContact is the exception: 0xE1 never includes it in the status
+    frame. RestoreEntity is used so the last-set value survives HA restarts
+    and the switch doesn't show 'unknown' (lightning bolt icon) on startup.
 
     manualMode semantics (from 30_DUOFERN.pm):
       When manualMode=on is sent to the device, the device ITSELF suspends
@@ -570,6 +578,19 @@ class DuoFernAutomationSwitch(CoordinatorEntity[DuoFernCoordinator], SwitchEntit
         self.entity_description = description
         self._attr_unique_id = f"{DOMAIN}_{hex_code}_{description.key}_auto"
         self._attr_device_info = DeviceInfo(identifiers={(DOMAIN, hex_code)})
+        # Fallback for readings that never come from the device (windowContact)
+        self._restored_is_on: bool | None = None
+
+    async def async_added_to_hass(self) -> None:
+        """Restore last known state for readings not reported by device.
+
+        windowContact is never included in the 0xE1 status frame, so without
+        restore the switch would always start as 'unknown' (lightning bolt).
+        """
+        await super().async_added_to_hass()
+        last_state = await self.async_get_last_state()
+        if last_state is not None and last_state.state in ("on", "off"):
+            self._restored_is_on = last_state.state == "on"
 
     @property
     def _device_state(self) -> DuoFernDeviceState | None:
@@ -591,11 +612,16 @@ class DuoFernAutomationSwitch(CoordinatorEntity[DuoFernCoordinator], SwitchEntit
         """
         state = self._device_state
         if state is None:
-            return None
+            return self._restored_is_on
         val = state.status.readings.get(self.entity_description.reading_key)
         if val is None:
-            return None
-        return str(val).lower() in ("on", "1", "true")
+            # Reading not in status frame (e.g. windowContact on 0xE1) —
+            # fall back to restored value, or False if never set.
+            return self._restored_is_on if self._restored_is_on is not None else False
+        live = str(val).lower() in ("on", "1", "true")
+        # Keep restored value in sync for next restart
+        self._restored_is_on = live
+        return live
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Enable this automation flag (send FD command to device).

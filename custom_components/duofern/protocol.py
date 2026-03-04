@@ -616,6 +616,47 @@ class DuoFernEncoder:
         f[18:21] = device_code.raw
         return f
 
+    @staticmethod
+    def build_hsa_command(
+        set_value: int,
+        device_code: "DuoFernId",
+    ) -> bytearray:
+        """Build duoSetHSA command for Heizkörperantrieb (0xE1).
+
+        From 30_DUOFERN.pm:
+          $duoSetHSA = "0D011D80nnnnnn0000000000000000000000yyyyyy00"
+          nnnnnn = 24-bit setValue (little-endian in hex pairs)
+          yyyyyy = device code
+
+        Bit layout of setValue (commandsHSA):
+          bits  0-6:  sendingInterval value  (0-60)
+          bit   7:    sendingInterval changeFlag
+          bit   8:    manualMode value        (0/1)
+          bit   9:    timeAutomatic value     (0/1)
+          bit   10:   manualMode changeFlag
+          bit   11:   timeAutomatic changeFlag
+          bit   12:   windowContact value     (0/1)
+          bit   13:   windowContact changeFlag
+          bit   16:   HSAtimer                (0/1, always 0 from HA)
+          bits 17-22: desired-temp rawValue   int((temp-4)/0.5)
+          bit   23:   desired-temp changeFlag
+        """
+        f = bytearray(22)
+        f[0] = 0x0D
+        f[1] = 0x01
+        f[2] = 0x1D
+        f[3] = 0x80
+        # nnnnnn: 3 bytes, big-endian
+        f[4] = (set_value >> 16) & 0xFF
+        f[5] = (set_value >> 8) & 0xFF
+        f[6] = set_value & 0xFF
+        # bytes 7-17 = 0x00 (duoSetHSA has no system_code field)
+        # From FHEM: "0D011D80nnnnnn0000000000000000000000yyyyyy00"
+        #              bytes 15-17 are 0x00, NOT system code!
+        f[18:21] = device_code.raw
+        f[21] = 0x00
+        return f
+
     # -- Pairing --
 
     @staticmethod
