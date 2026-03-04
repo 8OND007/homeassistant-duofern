@@ -6,7 +6,7 @@
 A custom Home Assistant integration for **Rademacher DuoFern** devices via the DuoFern USB stick.  
 Communicates directly with the USB stick using the native serial protocol — **no cloud, no gateway, fully local**.
 
-Protocol implementation is a clean Python re-implementation based on the FHEM modules `10_DUOFERNSTICK.pm` and `30_DUOFERN.pm`, aiming for **100% feature parity** with the FHEM DuoFern module.
+Forked from @MSchenkl and vibe-coded to aim for a complete re-implementation based on the FHEM modules `10_DUOFERNSTICK.pm` and `30_DUOFERN.pm`, aiming for **100% feature parity** with the FHEM DuoFern module.
 
 ---
 
@@ -54,7 +54,7 @@ Protocol implementation is a clean Python re-implementation based on the FHEM mo
 | Description | Code | HA Platform | Tested |
 |-------------|------|-------------|:------:|
 | Bewegungsmelder | `0x65` | `binary_sensor` | ❌ |
-| Rauchmelder | `0xAB` | `binary_sensor` | ❌ |
+| Rauchmelder | `0xAB` | `binary_sensor` | ✅ |
 | Fenster-Tür-Kontakt | `0xAC` | `binary_sensor` | ❌ |
 | Umweltsensor | `0x69` | `sensor` | ❌ |
 | Sonnensensor | `0xA5` | `sensor` | ❌ |
@@ -187,7 +187,7 @@ Two additional buttons appear on **each cover device card**:
 
 1. Open HACS in Home Assistant
 2. Click the three-dots menu → **Custom repositories**
-3. Add `https://github.com/MSchenkl/homeassistant-duofern` with category **Integration**
+3. Add `https://github.com/irstmon/homeassistant-duofern` with category **Integration**
 4. Search for "Rademacher DuoFern" and install
 5. Restart Home Assistant
 

@@ -199,7 +199,7 @@ class DuoFernClimate(CoordinatorEntity[DuoFernCoordinator], ClimateEntity):
         if state.battery_state is not None:
             attrs["battery_state"] = state.battery_state
         if state.battery_percent is not None:
-            attrs["battery_percent"] = state.battery_percent
+            attrs["battery_level"] = state.battery_percent
         return attrs
 
     async def async_set_temperature(self, **kwargs: Any) -> None:

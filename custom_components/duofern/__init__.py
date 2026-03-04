@@ -135,7 +135,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: DuoFernConfigEntry) -> b
         config_entry_id=entry.entry_id,
         identifiers={(DOMAIN, system_code.hex)},
         manufacturer="Rademacher",
-        model="DuoFern USB-Stick 7000",
+        model="DuoFern USB-Stick",
         name=f"DuoFern Stick ({system_code.hex})",
     )
 

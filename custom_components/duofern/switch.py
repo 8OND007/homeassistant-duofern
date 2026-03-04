@@ -484,7 +484,7 @@ class DuoFernSwitch(CoordinatorEntity[DuoFernCoordinator], SwitchEntity):
         if state.battery_state is not None:
             attrs["battery_state"] = state.battery_state
         if state.battery_percent is not None:
-            attrs["battery_percent"] = state.battery_percent
+            attrs["battery_level"] = state.battery_percent
         return attrs
 
     async def async_turn_on(self, **kwargs: Any) -> None:

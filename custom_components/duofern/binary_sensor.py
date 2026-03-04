@@ -283,7 +283,9 @@ class DuoFernBinarySensor(CoordinatorEntity[DuoFernCoordinator], BinarySensorEnt
         self._hex_code = hex_code
         self._device_code = device_state.device_code
         self._attr_unique_id = f"{DOMAIN}_{hex_code}"
-        self._is_on: bool | None = None
+        # Default False = "no smoke / no motion" rather than "unknown".
+        # A smoke detector that never fires should show "clear", not "unknown".
+        self._is_on: bool = False
         self._attr_device_class = _DEVICE_CLASS_FOR_TYPE.get(
             self._device_code.device_type,
             BinarySensorDeviceClass.MOTION,
@@ -307,7 +309,7 @@ class DuoFernBinarySensor(CoordinatorEntity[DuoFernCoordinator], BinarySensorEnt
         return self._device_state is not None
 
     @property
-    def is_on(self) -> bool | None:
+    def is_on(self) -> bool:
         return self._is_on
 
     @property
@@ -325,7 +327,7 @@ class DuoFernBinarySensor(CoordinatorEntity[DuoFernCoordinator], BinarySensorEnt
         if state.battery_state is not None:
             attrs["battery_state"] = state.battery_state
         if state.battery_percent is not None:
-            attrs["battery_percent"] = state.battery_percent
+            attrs["battery_level"] = state.battery_percent
         if state.last_seen is not None:
             attrs["last_seen"] = state.last_seen
         return attrs
@@ -423,7 +425,8 @@ class DuoFernWindowSensor(CoordinatorEntity[DuoFernCoordinator], BinarySensorEnt
         self._sensor_type = sensor_type
         self._attr_translation_key = translation_key
         self._attr_unique_id = f"{DOMAIN}_{hex_code}_{sensor_type}"
-        self._is_on: bool | None = None
+        # Default False = "closed" rather than "unknown".
+        self._is_on: bool = False
 
     async def async_added_to_hass(self) -> None:
         """Subscribe to DuoFern events on the HA event bus."""
@@ -443,7 +446,7 @@ class DuoFernWindowSensor(CoordinatorEntity[DuoFernCoordinator], BinarySensorEnt
         return self._device_state is not None
 
     @property
-    def is_on(self) -> bool | None:
+    def is_on(self) -> bool:
         return self._is_on
 
     @property
@@ -455,7 +458,7 @@ class DuoFernWindowSensor(CoordinatorEntity[DuoFernCoordinator], BinarySensorEnt
         if state.battery_state is not None:
             attrs["battery_state"] = state.battery_state
         if state.battery_percent is not None:
-            attrs["battery_percent"] = state.battery_percent
+            attrs["battery_level"] = state.battery_percent
         if state.last_seen is not None:
             attrs["last_seen"] = state.last_seen
         return attrs
@@ -660,7 +663,8 @@ class DuoFernEnvBinarySensor(CoordinatorEntity[DuoFernCoordinator], BinarySensor
         self._attr_unique_id = f"{DOMAIN}_{hex_code}_{translation_key}"
         self._attr_translation_key = translation_key
         self._attr_device_class = sensor_device_class
-        self._is_on: bool | None = None
+        # Default False = "no sun / no wind" rather than "unknown".
+        self._is_on: bool = False
 
     async def async_added_to_hass(self) -> None:
         """Subscribe to DuoFern events on the HA event bus."""
@@ -680,7 +684,7 @@ class DuoFernEnvBinarySensor(CoordinatorEntity[DuoFernCoordinator], BinarySensor
         return self._device_state is not None
 
     @property
-    def is_on(self) -> bool | None:
+    def is_on(self) -> bool:
         return self._is_on
 
     @property

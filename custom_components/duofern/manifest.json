@@ -2,12 +2,12 @@
   "domain": "duofern",
   "name": "Rademacher DuoFern",
   "codeowners": [
-    "@MSchenkl"
+    "@irstmon"
   ],
   "config_flow": true,
   "dependencies": [],
-  "documentation": "https://github.com/MSchenkl/homeassistant-duofern",
-  "issue_tracker": "https://github.com/MSchenkl/homeassistant-duofern/issues",
+  "documentation": "https://github.com/irstmon/homeassistant-duofern",
+  "issue_tracker": "https://github.com/irstmon/homeassistant-duofern/issues",
   "iot_class": "local_push",
   "requirements": [
     "pyserial-asyncio-fast==0.16"
@@ -20,5 +20,5 @@
       "manufacturer": "Rademacher"
     }
   ],
-  "version": "2.0.11"
+  "version": "2.0.0"
 }

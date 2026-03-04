@@ -226,7 +226,7 @@ class DuoFernSensor(CoordinatorEntity[DuoFernCoordinator], SensorEntity):
         if state.battery_state is not None:
             attrs["battery_state"] = state.battery_state
         if state.battery_percent is not None:
-            attrs["battery_percent"] = state.battery_percent
+            attrs["battery_level"] = state.battery_percent
         if state.last_seen is not None:
             attrs["last_seen"] = state.last_seen
         return attrs
