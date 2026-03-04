@@ -148,6 +148,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: DuoFernConfigEntry) -> b
     # Clean up any devices/entities that were removed from the config
     await _async_cleanup_stale_devices(hass, entry)
 
+    # Second status broadcast after 15s to catch devices that missed the first one.
+    # Some devices don't respond to the initial broadcast during startup.
+    async def _delayed_status_broadcast(_now: object = None) -> None:
+        _LOGGER.debug("Sending delayed startup status broadcast")
+        await coordinator.async_request_all_status()
+
+    entry.async_on_unload(
+        hass.helpers.event.async_call_later(15, _delayed_status_broadcast)
+    )
+
     return True
 
 
