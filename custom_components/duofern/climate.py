@@ -222,9 +222,7 @@ class DuoFernClimate(CoordinatorEntity[DuoFernCoordinator], ClimateEntity):
         if temp is None:
             return
         temp = max(TEMP_MIN, min(TEMP_MAX, round(temp / TEMP_STEP) * TEMP_STEP))
-        # Encode as level 0-100 scaled from TEMP_MIN-TEMP_MAX
-        level = round((temp - TEMP_MIN) / (TEMP_MAX - TEMP_MIN) * 100)
-        await self.coordinator.async_set_level(self._device_code, level)
+        await self.coordinator.async_set_desired_temp(self._device_code, temp)
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
         """Set HVAC mode.

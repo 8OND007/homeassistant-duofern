@@ -336,7 +336,18 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
 
             # 0xE1 Heizkörperantrieb: device-initiated protocol — send any
             # queued HSA changes now that the device has checked in.
+            # IMPORTANT: re-apply pending values into readings AFTER parse so
+            # the UI keeps showing the user's intended value while we wait for
+            # the device to confirm. Without this, state.status = parsed would
+            # overwrite our optimistic update and the UI snaps back.
             if device_code.device_type == 0xE1 and state.hsa_pending:
+                for key, (_, new_val) in state.hsa_pending.items():
+                    state.status.readings[key] = new_val
+                    if key == "desired-temp":
+                        try:
+                            state.status.desired_temp = float(new_val)
+                        except (TypeError, ValueError):
+                            pass
                 asyncio.create_task(self._send_hsa_if_pending(device_code))
 
         self.async_set_updated_data(self.data)
@@ -1213,6 +1224,14 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
 
         # Optimistic UI update so entity shows new value immediately
         state.status.readings[key] = new_value
+        # Also update the dedicated ParsedStatus field if applicable so
+        # ClimateEntity.target_temperature (which reads desired_temp, not
+        # readings) reflects the change without waiting for a status frame.
+        if key == "desired-temp":
+            try:
+                state.status.desired_temp = float(new_value)
+            except (TypeError, ValueError):
+                pass
         self.async_set_updated_data(self.data)
         _LOGGER.debug(
             "HSA %s: queued %s=%s (was %s), waiting for device status frame",
