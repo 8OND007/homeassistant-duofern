@@ -45,7 +45,7 @@ from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.components.binary_sensor import RestoreBinarySensor
+from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import DuoFernConfigEntry
@@ -260,7 +260,9 @@ async def async_setup_entry(
 # ---------------------------------------------------------------------------
 
 
-class DuoFernBinarySensor(CoordinatorEntity[DuoFernCoordinator], RestoreBinarySensor):
+class DuoFernBinarySensor(
+    CoordinatorEntity[DuoFernCoordinator], BinarySensorEntity, RestoreEntity
+):
     """A DuoFern motion/smoke/contact sensor as a HA BinarySensorEntity.
 
     State is updated via HA event bus (duofern_event) because these devices
