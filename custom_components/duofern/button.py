@@ -98,11 +98,14 @@ async def async_setup_entry(
             entities.append(DuoFernResetSettingsButton(coordinator, dev_code))
             entities.append(DuoFernResetFullButton(coordinator, dev_code))
 
-        # remotePair/remoteUnpair — not for remotes, env sensors, or 0xE1 HSA
-        # 0xE1 Heizkörperantrieb uses %setsHSA which has no remotePair commands
+        # remotePair/remoteUnpair — not for remotes, env/binary sensors, or 0xE1 HSA
+        # Binary sensors (0xAB Rauchmelder, 0xAC Fensterkontakt, 0x65 Bewegungsmelder)
+        # are pure event senders with no set commands in FHEM, same as remotes.
+        # 0xE1 Heizkörperantrieb uses %setsHSA which has no remotePair commands.
         if (
             not dev_code.is_remote
             and not dev_code.is_env_sensor
+            and not dev_code.is_binary_sensor
             and dev_code.device_type != 0xE1
         ):
             entities.append(DuoFernRemotePairButton(coordinator, dev_code))
@@ -122,10 +125,12 @@ async def async_setup_entry(
         )
         dev_type = dev_code.device_type
         # getStatus for all actuators (from %commandsStatus)
-        # Remotes, env sensors, and 0xE1 Heizkörperantrieb have no getStatus in FHEM
+        # Remotes, env/binary sensors, and 0xE1 have no getStatus in FHEM.
+        # Binary sensors (0xAB/0xAC/0x65) are battery-powered event senders only.
         if (
             not dev_code.is_remote
             and not dev_code.is_env_sensor
+            and not dev_code.is_binary_sensor
             and dev_code.device_type != 0xE1
         ):
             entities.append(DuoFernGetStatusButton(coordinator, dev_code))
