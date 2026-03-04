@@ -47,6 +47,7 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.event import async_call_later
 
 from .const import CONF_DEVICE_CODE, CONF_PAIRED_DEVICES, CONF_SERIAL_PORT, DOMAIN
 from .coordinator import DuoFernCoordinator
@@ -154,9 +155,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: DuoFernConfigEntry) -> b
         _LOGGER.debug("Sending delayed startup status broadcast")
         await coordinator.async_request_all_status()
 
-    entry.async_on_unload(
-        hass.helpers.event.async_call_later(15, _delayed_status_broadcast)
-    )
+    entry.async_on_unload(async_call_later(hass, 15, _delayed_status_broadcast))
 
     return True
 
