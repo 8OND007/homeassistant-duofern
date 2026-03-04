@@ -212,7 +212,7 @@
         "name": "Rücksprung"
       },
       "window_contact_automatic": {
-        "name": "Schließkontaktautomatik"
+        "name": "Schließkontakt-Automatik"
       }
     },
     "number": {
@@ -320,6 +320,9 @@
       },
       "last_seen": {
         "name": "Zuletzt gesehen"
+      },
+      "valve_position": {
+        "name": "Ventil-Öffnungsgrad"
       }
     }
   },

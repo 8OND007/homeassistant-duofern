@@ -178,6 +178,17 @@ async def async_setup_entry(
             )
             _LOGGER.debug("Adding battery sensor for device %s", hex_code)
 
+        # Valve position sensor for 0xE1 Heizkörperantrieb.
+        # valvePosition is statusId 186 in format-29, range 0-100%.
+        if dev_code.device_type == 0xE1:
+            entities.append(
+                DuoFernValveSensor(
+                    coordinator=coordinator,
+                    device_state=device_state,
+                    hex_code=hex_code,
+                )
+            )
+
         # Last-seen timestamp sensor for every known device.
         entities.append(
             DuoFernLastSeenSensor(
@@ -441,6 +452,71 @@ class DuoFernBatterySensor(
             or state.status.readings.get("batteryPercent") is not None
         ):
             self._restored_value = None
+        self.async_write_ha_state()
+
+
+# ---------------------------------------------------------------------------
+# Valve position sensor — 0xE1 Heizkörperantrieb
+# ---------------------------------------------------------------------------
+
+
+class DuoFernValveSensor(CoordinatorEntity[DuoFernCoordinator], SensorEntity):
+    """Sensor showing the current valve opening position of the radiator valve.
+
+    From 30_DUOFERN.pm format "29" statusId 186:
+      valvePosition: position=6, bits 0-6, range 0-100%.
+    Stored in ParsedStatus.readings["valvePosition"] by parse_status().
+
+    Shown in the "Sensoren" section of the device card (no EntityCategory so
+    it appears as a primary sensor, not a diagnostic).
+    Uses SensorDeviceClass.POWER_FACTOR for % unit — HA renders a nice
+    gauge icon. Alternatively mdi:valve is a clear custom icon.
+    """
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "valve_position"
+    _attr_native_unit_of_measurement = "%"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_icon = "mdi:valve"
+    _attr_suggested_display_precision = 0
+
+    def __init__(
+        self,
+        coordinator: DuoFernCoordinator,
+        device_state: DuoFernDeviceState,
+        hex_code: str,
+    ) -> None:
+        super().__init__(coordinator)
+        self._hex_code = hex_code
+        self._attr_unique_id = f"{DOMAIN}_{hex_code}_valve_position"
+        self._attr_device_info = DeviceInfo(identifiers={(DOMAIN, hex_code)})
+
+    @property
+    def _device_state(self) -> DuoFernDeviceState | None:
+        if self.coordinator.data is None:
+            return None
+        return self.coordinator.data.devices.get(self._hex_code)
+
+    @property
+    def available(self) -> bool:
+        state = self._device_state
+        return state is not None and state.available
+
+    @property
+    def native_value(self) -> float | None:
+        state = self._device_state
+        if state is None:
+            return None
+        val = state.status.readings.get("valvePosition")
+        if val is None:
+            return None
+        try:
+            return float(val)
+        except (TypeError, ValueError):
+            return None
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
         self.async_write_ha_state()
 
 

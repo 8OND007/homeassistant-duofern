@@ -312,6 +312,9 @@
       },
       "last_seen": {
         "name": "Last Seen"
+      },
+      "valve_position": {
+        "name": "Valve Position"
       }
     }
   },

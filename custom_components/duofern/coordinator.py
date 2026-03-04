@@ -1167,7 +1167,7 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
         "sendingInterval": {
             "bit_from": 0,
             "change_flag": 7,
-            "min": 0,
+            "min": 2,
             "max": 60,
             "step": 1,
         },
@@ -1310,7 +1310,7 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
         From 30_DUOFERN.pm %commandsHSA:
           sendingInterval: bitFrom=0, changeFlag=7, min=0, max=60, step=1
         """
-        clamped = max(0, min(60, value))
+        clamped = max(2, min(60, value))
         self._schedule_hsa_update(device_code, "sendingInterval", clamped)
 
     async def async_set_mode_change(self, device_code: DuoFernId) -> None:
