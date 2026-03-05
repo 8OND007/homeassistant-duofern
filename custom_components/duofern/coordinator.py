@@ -45,6 +45,11 @@ DUOFERN_EVENT is the HA event bus name for all sensor/obstacle events.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from homeassistant.config_entries import ConfigEntry
+
 import asyncio
 import logging
 from dataclasses import dataclass, field
@@ -55,6 +60,8 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .const import (
+    CONF_AUTO_DISCOVER,
+    CONF_PAIRED_DEVICES,
     DEVICE_CHANNELS,
     DOMAIN,
     STATUS_RETRY_COUNT,
@@ -123,6 +130,7 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
     def __init__(
         self,
         hass: HomeAssistant,
+        config_entry: ConfigEntry,
         serial_port: str,
         system_code: DuoFernId,
         paired_devices: list[DuoFernId],
@@ -133,6 +141,7 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
             name=DOMAIN,
             update_interval=None,  # Push-based, no polling
         )
+        self._config_entry = config_entry
         self._serial_port = serial_port
         self._system_code = system_code
         self._paired_devices = paired_devices
@@ -236,6 +245,41 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
         except Exception:
             _LOGGER.exception("Error dispatching message: %s", frame.hex())
 
+    def _maybe_trigger_discovery(self, device_code: DuoFernId) -> None:
+        """Fire integration-discovery if device is unknown and auto-discover is on.
+
+        Conditions for firing:
+          1. auto_discover option enabled in config entry options
+          2. device hex not in entry.data[CONF_PAIRED_DEVICES]
+          3. device type is recognised (not Unknown 0xXX)
+        HA's async_set_unique_id in the flow prevents duplicate inbox entries.
+        """
+        if not self._config_entry.options.get(CONF_AUTO_DISCOVER, False):
+            return
+        paired: list[str] = self._config_entry.data.get(CONF_PAIRED_DEVICES, [])
+        if device_code.hex in paired:
+            return
+        if device_code.device_name.startswith("Unknown"):
+            return
+        _LOGGER.info(
+            "Unbekanntes DuoFern-Gerät empfangen: %s (%s) — Discovery wird gestartet",
+            device_code.hex,
+            device_code.device_name,
+        )
+        from homeassistant.config_entries import SOURCE_INTEGRATION_DISCOVERY  # noqa: PLC0415
+
+        self.hass.async_create_task(
+            self.hass.config_entries.flow.async_init(
+                DOMAIN,
+                context={"source": SOURCE_INTEGRATION_DISCOVERY},
+                data={
+                    "device_hex": device_code.hex,
+                    "device_name": device_code.device_name,
+                    "entry_id": self._config_entry.entry_id,
+                },
+            )
+        )
+
     def _dispatch(self, frame: bytearray) -> None:
         """Dispatch logic — mirrors DUOFERN_Parse from 30_DUOFERN.pm."""
 
@@ -301,6 +345,7 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
         device_code = DuoFernDecoder.extract_device_code_from_status(frame)
         hex_code = device_code.hex
 
+        self._maybe_trigger_discovery(device_code)
         channels = DEVICE_CHANNELS.get(device_code.device_type)
         if channels:
             # Multi-channel device: update each channel with channel-specific parsing
@@ -403,6 +448,13 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
             event.state,
         )
 
+        # Trigger discovery for unknown devices before looking up state
+        try:
+            _dc = DuoFernId.from_hex(event.device_code)
+            self._maybe_trigger_discovery(_dc)
+        except Exception:
+            pass
+
         # Update last_seen
         state = self.data.devices.get(event.device_code)
         if state:
@@ -424,6 +476,7 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
     def _handle_weather_data(self, frame: bytearray) -> None:
         """Handle Umweltsensor weather data (0F..1322...)."""
         device_code = DuoFernDecoder.extract_device_code(frame)
+        self._maybe_trigger_discovery(device_code)
         weather = DuoFernDecoder.parse_weather_data(frame)
 
         state = self.data.devices.get(device_code.hex)
@@ -474,6 +527,7 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
         From 30_DUOFERN.pm: #Sensoren Batterie (0FFF1323...)
         """
         device_code = DuoFernDecoder.extract_device_code(frame)
+        self._maybe_trigger_discovery(device_code)
         info = DuoFernDecoder.parse_battery_status(frame)
         state = self.data.devices.get(device_code.hex)
         if state:

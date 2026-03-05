@@ -114,6 +114,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: DuoFernConfigEntry) -> b
     # Create and connect the coordinator
     coordinator = DuoFernCoordinator(
         hass=hass,
+        config_entry=entry,
         serial_port=port,
         system_code=system_code,
         paired_devices=paired_devices,

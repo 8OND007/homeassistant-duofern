@@ -24,10 +24,12 @@ from homeassistant.config_entries import (
     ConfigFlow,
     ConfigFlowResult,
     OptionsFlow,
+    SOURCE_INTEGRATION_DISCOVERY,
 )
 from homeassistant.components import usb
 
 from .const import (
+    CONF_AUTO_DISCOVER,
     CONF_DEVICE_CODE,
     CONF_PAIRED_DEVICES,
     CONF_SERIAL_PORT,
@@ -174,6 +176,63 @@ class DuoFernConfigFlow(ConfigFlow, domain=DOMAIN):
         # So we proceed to the user step with the port pre-filled
         return await self.async_step_user()
 
+    async def async_step_integration_discovery(
+        self, discovery_info: dict
+    ) -> ConfigFlowResult:
+        """Handle a device discovered by the coordinator.
+
+        Shown in HA's 'Entdeckt' / discovered inbox when auto_discover is
+        enabled and an unknown but decodable DuoFern device sends a frame.
+        The entry has a unique_id of '<entry_id>_<device_hex>' so HA
+        ensures the same device only appears once in the inbox.
+        """
+        device_hex: str = discovery_info["device_hex"]
+        device_name: str = discovery_info["device_name"]
+        entry_id: str = discovery_info["entry_id"]
+
+        # Unique id prevents the same device appearing twice in inbox
+        await self.async_set_unique_id(f"{entry_id}_{device_hex}")
+        self._abort_if_unique_id_configured()
+
+        # Store for use in async_step_confirm
+        self._discovered_device_hex = device_hex
+        self._discovered_device_name = device_name
+        self._discovered_entry_id = entry_id
+
+        self.context["title_placeholders"] = {
+            "device_name": device_name,
+            "device_hex": device_hex,
+        }
+        return await self.async_step_confirm_discovery()
+
+    async def async_step_confirm_discovery(
+        self, user_input: dict | None = None
+    ) -> ConfigFlowResult:
+        """Ask the user to confirm adding the discovered device."""
+        if user_input is not None:
+            # Add device to existing config entry's paired list
+            entry = self.hass.config_entries.async_get_entry(self._discovered_entry_id)
+            if entry is not None:
+                current: list[str] = list(entry.data.get(CONF_PAIRED_DEVICES, []))
+                if self._discovered_device_hex not in current:
+                    current.append(self._discovered_device_hex)
+                    self.hass.config_entries.async_update_entry(
+                        entry,
+                        data={**entry.data, CONF_PAIRED_DEVICES: current},
+                    )
+                    self.hass.async_create_task(
+                        self.hass.config_entries.async_reload(entry.entry_id)
+                    )
+            return self.async_abort(reason="device_added")
+
+        return self.async_show_form(
+            step_id="confirm_discovery",
+            description_placeholders={
+                "device_name": self._discovered_device_name,
+                "device_hex": self._discovered_device_hex,
+            },
+        )
+
     @staticmethod
     def async_get_options_flow(
         config_entry: ConfigEntry,
@@ -207,11 +266,16 @@ class DuoFernOptionsFlow(OptionsFlow):
                     errors[CONF_PAIRED_DEVICES] = "invalid_device_code"
                 else:
                     # Update entry.data with new device list
+                    auto_discover: bool = user_input.get(CONF_AUTO_DISCOVER, False)
                     self.hass.config_entries.async_update_entry(
                         self._config_entry,
                         data={
                             **self._config_entry.data,
                             CONF_PAIRED_DEVICES: device_codes,
+                        },
+                        options={
+                            **self._config_entry.options,
+                            CONF_AUTO_DISCOVER: auto_discover,
                         },
                     )
                     # Reload the integration to re-run init with new devices
@@ -224,9 +288,14 @@ class DuoFernOptionsFlow(OptionsFlow):
         current_codes: list[str] = self._config_entry.data.get(CONF_PAIRED_DEVICES, [])
         default_value = ", ".join(current_codes) if current_codes else ""
 
+        current_auto_discover: bool = self._config_entry.options.get(
+            CONF_AUTO_DISCOVER, False
+        )
+
         data_schema = vol.Schema(
             {
                 vol.Required(CONF_PAIRED_DEVICES, default=default_value): str,
+                vol.Required(CONF_AUTO_DISCOVER, default=current_auto_discover): bool,
             }
         )
 

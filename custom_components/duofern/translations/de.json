@@ -22,6 +22,10 @@
         "data_description": {
           "paired_devices": "Kommagetrennte Liste von 6-stelligen Hex-Gerätecodes (z. B. 406B0D, 4090EA, 40B689). Dies sind die Codes Ihrer DuoFern-Geräte."
         }
+      },
+      "confirm_discovery": {
+        "title": "DuoFern {device_name} hinzufügen",
+        "description": "Gerät **{device_name}** (Code: `{device_hex}`) wurde empfangen. Soll es zur Integration hinzugefügt werden?"
       }
     },
     "error": {
@@ -32,7 +36,8 @@
       "unknown": "Ein unerwarteter Fehler ist aufgetreten."
     },
     "abort": {
-      "already_configured": "Dieser DuoFern-Stick ist bereits konfiguriert."
+      "already_configured": "Dieser DuoFern-Stick ist bereits konfiguriert.",
+      "device_added": "Gerät wurde hinzugefügt und die Integration wird neu gestartet."
     }
   },
   "options": {
@@ -41,10 +46,11 @@
         "title": "Gekoppelte DuoFern-Geräte",
         "description": "Bearbeiten Sie die Liste der gekoppelten DuoFern-Gerätecodes. Die Integration wird nach dem Speichern neu geladen.",
         "data": {
-          "paired_devices": "Gerätecodes"
+          "paired_devices": "Gerätecodes",
+          "auto_discover": "Unbekannte Geräte automatisch entdecken"
         },
         "data_description": {
-          "paired_devices": "Kommagetrennte Liste von 6-stelligen Hex-Gerätecodes (z. B. 406B0D, 4090EA, 40B689)."
+          "auto_discover": "Wenn aktiviert, erscheinen DuoFern-Geräte die Frames senden aber noch nicht in der Geräteliste sind im HA-Eingang."
         }
       }
     }

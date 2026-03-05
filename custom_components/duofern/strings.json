@@ -22,6 +22,10 @@
         "data_description": {
           "paired_devices": "Comma-separated list of 6-digit hex device codes (e.g. 406B0D, 4090EA, 40B689). These are the codes of your DuoFern devices."
         }
+      },
+      "confirm_discovery": {
+        "title": "Add DuoFern {device_name}",
+        "description": "Device **{device_name}** (code: `{device_hex}`) was received. Do you want to add it to the integration?"
       }
     },
     "error": {
@@ -32,7 +36,8 @@
       "unknown": "An unexpected error occurred."
     },
     "abort": {
-      "already_configured": "This DuoFern stick is already configured."
+      "already_configured": "This DuoFern stick is already configured.",
+      "device_added": "Device has been added and the integration is reloading."
     }
   },
   "options": {
@@ -41,10 +46,11 @@
         "title": "DuoFern Paired Devices",
         "description": "Edit the list of paired DuoFern device codes. The integration will reload after saving.",
         "data": {
-          "paired_devices": "Device Codes"
+          "paired_devices": "Device Codes",
+          "auto_discover": "Automatically discover unknown devices"
         },
         "data_description": {
-          "paired_devices": "Comma-separated list of 6-digit hex device codes (e.g. 406B0D, 4090EA, 40B689)."
+          "auto_discover": "When enabled, DuoFern devices that send frames but are not yet in the device list will appear in the HA inbox."
         }
       }
     }

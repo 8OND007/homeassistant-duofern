@@ -59,6 +59,7 @@ FLUSH_BUFFER_TIMEOUT: Final = 0.5
 CONF_SERIAL_PORT: Final = "serial_port"
 CONF_DEVICE_CODE: Final = "system_code"
 CONF_PAIRED_DEVICES: Final = "paired_devices"
+CONF_AUTO_DISCOVER: Final = "auto_discover"
 
 # ---------------------------------------------------------------------------
 # Device type registry
