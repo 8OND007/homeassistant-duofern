@@ -267,22 +267,24 @@ class DuoFernOptionsFlow(OptionsFlow):
                 else:
                     # Update entry.data with new device list
                     auto_discover: bool = user_input.get(CONF_AUTO_DISCOVER, False)
+                    # Update entry.data with new device list
                     self.hass.config_entries.async_update_entry(
                         self._config_entry,
                         data={
                             **self._config_entry.data,
                             CONF_PAIRED_DEVICES: device_codes,
                         },
-                        options={
-                            **self._config_entry.options,
-                            CONF_AUTO_DISCOVER: auto_discover,
-                        },
                     )
                     # Reload the integration to re-run init with new devices
                     await self.hass.config_entries.async_reload(
                         self._config_entry.entry_id
                     )
-                    return self.async_create_entry(data={})
+                    # async_create_entry(data=...) is what HA uses to persist
+                    # entry.options — do NOT call async_update_entry for options
+                    # as async_create_entry would overwrite it with {}.
+                    return self.async_create_entry(
+                        data={CONF_AUTO_DISCOVER: auto_discover}
+                    )
 
         # Pre-fill with current device codes
         current_codes: list[str] = self._config_entry.data.get(CONF_PAIRED_DEVICES, [])
