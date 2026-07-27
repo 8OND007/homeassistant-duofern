@@ -26,6 +26,16 @@
       "confirm_discovery": {
         "title": "DuoFern Gerät hinzufügen",
         "description": "Soll **{name}** zur Integration hinzugefügt werden?"
+      },
+      "reconfigure": {
+        "title": "DuoFern-Verbindung neu konfigurieren",
+        "description": "Serielle Verbindung des DuoFern-Sticks aktualisieren. Aktuell konfiguriert: `{current_port}`",
+        "data": {
+          "serial_port": "Serielle Verbindung"
+        },
+        "data_description": {
+          "serial_port": "Lokaler serieller Pfad oder ser2net-URL (z. B. /dev/ttyUSB0, socket://192.168.1.20:2000 oder rfc2217://192.168.1.20:2000)."
+        }
       }
     },
     "error": {
@@ -37,7 +47,8 @@
     },
     "abort": {
       "already_configured": "Dieser DuoFern-Stick ist bereits konfiguriert.",
-      "device_added": "Gerät wurde hinzugefügt und die Integration wird neu gestartet."
+      "device_added": "Gerät wurde hinzugefügt und die Integration wird neu gestartet.",
+      "reconfigure_successful": "Serielle Verbindung erfolgreich aktualisiert."
     }
   },
   "options": {

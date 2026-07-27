@@ -294,6 +294,10 @@ These are the device codes from your FHEM configuration (`ATTR device CODE`).
 
 Go to **Settings → Devices & Services → DuoFern → Configure** to add or remove device codes at any time. The integration reloads automatically.
 
+### Changing the Serial Connection
+
+To change the serial port or network URL after initial setup, go to **Settings → Devices & Services → DuoFern → ⋮ → Reconfigure**. The form pre-fills the current value and validates the new connection before saving. The system code and paired device list are not affected.
+
 ### Network Serial (ser2net)
 
 If your DuoFern USB stick is connected to a different machine than the one running Home Assistant (e.g. a Proxmox host while HA runs in a VM), you can expose it over the network using `ser2net`.
