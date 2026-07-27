@@ -6,7 +6,7 @@
 [![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=irstmon&repository=homeassistant-duofern&category=integration)
 
 A custom Home Assistant integration for **Rademacher DuoFern** devices via the DuoFern USB stick.  
-Communicates directly with the USB stick using the native serial protocol — **no cloud, no gateway, fully local**.
+Communicates directly with the USB stick using the native serial protocol — via local USB or a network serial server — **no cloud, no gateway, fully local**.
 
 Forked from @MSchenkl and extensively rewritten to aim for a complete re-implementation based on the FHEM modules `10_DUOFERNSTICK.pm` and `30_DUOFERN.pm`, aiming for near-complete feature parity with the FHEM DuoFern module.
 
@@ -241,6 +241,7 @@ Each paired Handsender or Wandtaster gets a dedicated **EventEntity** in HA. Whe
 - **Push-based, no polling** — devices push status updates; HA reflects changes immediately
 - **Status broadcast on startup** — on integration load, a full status broadcast ensures all device states are current
 - **USB auto-discovery** — the stick is detected automatically via USB VID/PID when plugged in
+- **Network serial support** — connect via `ser2net` using `socket://host:port` (recommended) or `rfc2217://host:port` URLs; useful for virtualised HA environments where the USB stick is on another machine
 - **Battery sensor entity** — all battery-powered devices get a dedicated **Battery** diagnostic sensor entity on the device card. The last known value persists across HA restarts
 - **Last Seen sensor** — every device gets a `Last Seen` timestamp sensor that updates whenever a frame is received, with `RestoreEntity` persistence
 - **Automatic device discovery** *(opt-in)* — unknown devices that send frames but are not yet in your paired list automatically appear in the HA Discovered inbox. Enable under **Settings → Devices & Services → DuoFern → Configure**. See [Automatic Device Discovery](#automatic-device-discovery) below
@@ -276,7 +277,7 @@ Then restart Home Assistant.
 
 Go to **Settings → Devices & Services → Add Integration → DuoFern**
 
-- **Serial Port** — select your DuoFern USB stick (e.g., `/dev/ttyUSB0`)
+- **Serial Connection** — select a local USB stick (e.g., `/dev/ttyUSB0`) from the dropdown, or type a `ser2net` network URL such as `socket://192.168.1.20:2000` or `rfc2217://192.168.1.20:2000`
 - **System Code** — the 6-digit hex dongle serial (starts with `6F`, e.g., `6F1A2B`). Find it in your previous FHEM config (`ATTR dongle CODE`) or on the stick label. To preserve all existing pairings you need to use the same code as before! Otherwise all devices have to be re-paired
 
 ### Step 2: Paired Devices
@@ -292,6 +293,34 @@ These are the device codes from your FHEM configuration (`ATTR device CODE`).
 ### Managing Devices After Setup
 
 Go to **Settings → Devices & Services → DuoFern → Configure** to add or remove device codes at any time. The integration reloads automatically.
+
+### Network Serial (ser2net)
+
+If your DuoFern USB stick is connected to a different machine than the one running Home Assistant (e.g. a Proxmox host while HA runs in a VM), you can expose it over the network using `ser2net`.
+
+A minimal `ser2net.yaml` for a raw TCP connection:
+
+```yaml
+connection: &duofern
+  accepter: tcp,2000
+  connector: serialdev,/dev/ttyUSB0,115200n81,local
+  options:
+    kickolduser: true
+```
+
+Then enter the following in the **Serial Connection** field during setup:
+
+```
+socket://192.168.1.20:2000
+```
+
+For RFC2217, change the accepter to `telnet(rfc2217),tcp,2000` and use:
+
+```
+rfc2217://192.168.1.20:2000
+```
+
+Raw TCP (`socket://`) is recommended — it uses the same fast async transport as a direct USB connection. Only one client should access the stick at a time. The examples above do not add encryption or authentication; keep the connection on a trusted network.
 
 ### Automatic Device Discovery
 
@@ -391,6 +420,7 @@ python3 tools/test_duofern.py down                 # Close ALL shutters
 python3 tools/test_duofern.py position 50          # Set ALL to 50%
 python3 tools/test_duofern.py status               # Status of ALL devices
 python3 tools/test_duofern.py statusall            # Broadcast status request
+python3 tools/test_duofern.py --port socket://192.168.1.20:2000 statusall  # Via ser2net
 ```
 
 ### pair_duofern.py — Pairing Tool
@@ -402,6 +432,7 @@ python3 tools/pair_duofern.py pair              # Start pairing (60s window)
 python3 tools/pair_duofern.py unpair            # Start unpairing
 python3 tools/pair_duofern.py list              # List all devices with status
 python3 tools/pair_duofern.py pair --timeout 120 -v  # Extended timeout + debug
+python3 tools/pair_duofern.py --port socket://192.168.1.20:2000 list  # Via ser2net
 ```
 
 ---
