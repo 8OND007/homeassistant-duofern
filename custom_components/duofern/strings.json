@@ -26,6 +26,16 @@
       "confirm_discovery": {
         "title": "Add DuoFern device",
         "description": "Do you want to add **{name}** to the integration?"
+      },
+      "reconfigure": {
+        "title": "Reconfigure DuoFern connection",
+        "description": "Update the serial connection for your DuoFern stick. Currently configured: `{current_port}`",
+        "data": {
+          "serial_port": "Serial Connection"
+        },
+        "data_description": {
+          "serial_port": "A local serial path or ser2net URL (e.g. /dev/ttyUSB0, socket://192.168.1.20:2000, or rfc2217://192.168.1.20:2000)."
+        }
       }
     },
     "error": {
@@ -37,7 +47,8 @@
     },
     "abort": {
       "already_configured": "This DuoFern stick is already configured.",
-      "device_added": "Device has been added and the integration is reloading."
+      "device_added": "Device has been added and the integration is reloading.",
+      "reconfigure_successful": "Serial connection updated successfully."
     }
   },
   "options": {

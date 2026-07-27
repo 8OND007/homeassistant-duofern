@@ -160,6 +160,60 @@ class DuoFernConfigFlow(ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle reconfiguration of the serial connection."""
+        errors: dict[str, str] = {}
+        entry = self._get_reconfigure_entry()
+
+        if user_input is not None:
+            serial_port = user_input[CONF_SERIAL_PORT].strip()
+
+            try:
+                port_valid = await self.hass.async_add_executor_job(
+                    check_serial_connection, serial_port
+                )
+                if not port_valid:
+                    errors[CONF_SERIAL_PORT] = "cannot_connect"
+            except Exception:
+                _LOGGER.exception("Error checking serial port during reconfigure")
+                errors["base"] = "unknown"
+
+            if not errors:
+                return self.async_update_reload_and_abort(
+                    entry,
+                    data={**entry.data, CONF_SERIAL_PORT: serial_port},
+                )
+
+        current_port = entry.data.get(CONF_SERIAL_PORT, "")
+        ports = await self.hass.async_add_executor_job(serial.tools.list_ports.comports)
+        port_list = {p.device: f"{p.device} ({p.description})" for p in ports}
+        if current_port and current_port not in port_list:
+            port_list[current_port] = current_port
+
+        port_schema = selector.SelectSelector(
+            selector.SelectSelectorConfig(
+                options=[
+                    selector.SelectOptionDict(value=value, label=label)
+                    for value, label in port_list.items()
+                ],
+                custom_value=True,
+                mode=selector.SelectSelectorMode.DROPDOWN,
+            )
+        )
+
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_SERIAL_PORT, default=current_port): port_schema,
+                }
+            ),
+            description_placeholders={"current_port": current_port},
+            errors=errors,
+        )
+
     async def async_step_usb(
         self, discovery_info: usb.UsbServiceInfo
     ) -> ConfigFlowResult:
