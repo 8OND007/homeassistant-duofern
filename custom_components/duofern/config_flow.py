@@ -13,7 +13,6 @@ An options flow allows editing the device list after initial setup.
 from __future__ import annotations
 
 import logging
-import os
 import re
 from typing import Any
 
@@ -27,6 +26,7 @@ from homeassistant.config_entries import (
     OptionsFlow,
 )
 from homeassistant.components import usb
+from homeassistant.helpers import selector
 
 from .const import (
     CONF_AUTO_DISCOVER,
@@ -36,6 +36,7 @@ from .const import (
     DOMAIN,
 )
 from .protocol import validate_device_code, validate_system_code
+from .serial_connection import check_serial_connection
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -57,7 +58,7 @@ class DuoFernConfigFlow(ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            serial_port = user_input[CONF_SERIAL_PORT]
+            serial_port = user_input[CONF_SERIAL_PORT].strip()
             system_code = user_input[CONF_DEVICE_CODE].upper().strip()
 
             # Validate system code format
@@ -71,7 +72,7 @@ class DuoFernConfigFlow(ConfigFlow, domain=DOMAIN):
                 # Try to verify the serial port exists
                 try:
                     port_valid = await self.hass.async_add_executor_job(
-                        _check_serial_port, serial_port
+                        check_serial_connection, serial_port
                     )
                     if not port_valid:
                         errors[CONF_SERIAL_PORT] = "cannot_connect"
@@ -96,11 +97,17 @@ class DuoFernConfigFlow(ConfigFlow, domain=DOMAIN):
         if default_port and default_port not in port_list:
             port_list[default_port] = default_port
 
-        # If no ports found, allow manual text entry
-        if port_list:
-            port_schema = vol.In(port_list)
-        else:
-            port_schema = str
+        # Keep discovered local ports as suggestions while allowing network URLs.
+        port_schema = selector.SelectSelector(
+            selector.SelectSelectorConfig(
+                options=[
+                    selector.SelectOptionDict(value=value, label=label)
+                    for value, label in port_list.items()
+                ],
+                custom_value=True,
+                mode=selector.SelectSelectorMode.DROPDOWN,
+            )
+        )
 
         data_schema = vol.Schema(
             {
@@ -338,23 +345,3 @@ def _parse_device_codes(raw: str) -> list[str]:
     return result
 
 
-def _check_serial_port(port: str) -> bool:
-    """Check if a serial port path exists and is accessible.
-
-    Runs in executor thread (blocking I/O).
-    Both os and serial are imported at module level — no late imports needed.
-    """
-    if not os.path.exists(port):
-        _LOGGER.warning("Serial port does not exist: %s", port)
-        return False
-
-    try:
-        ser = serial.Serial(port, timeout=1)
-        ser.close()
-        return True
-    except serial.SerialException as err:
-        _LOGGER.warning("Cannot open serial port %s: %s", port, err)
-        return False
-    except Exception as err:
-        _LOGGER.warning("Error checking serial port %s: %s", port, err)
-        return False
