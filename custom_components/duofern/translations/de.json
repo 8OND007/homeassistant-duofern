@@ -3,13 +3,13 @@
     "step": {
       "user": {
         "title": "Rademacher DuoFern USB-Stick",
-        "description": "Konfigurieren Sie die Verbindung zu Ihrem DuoFern USB-Stick.",
+        "description": "Konfigurieren Sie eine lokale oder Netzwerkverbindung zu Ihrem DuoFern USB-Stick.",
         "data": {
-          "serial_port": "Serielle Schnittstelle",
+          "serial_port": "Serielle Verbindung",
           "system_code": "Systemcode (6-stellige Hex, beginnt mit 6F)"
         },
         "data_description": {
-          "serial_port": "Der Pfad der seriellen Schnittstelle Ihres DuoFern USB-Sticks (z. B. /dev/ttyUSB0).",
+          "serial_port": "Lokaler serieller Pfad oder ser2net-URL (z. B. /dev/ttyUSB0, socket://192.168.1.20:2000 oder rfc2217://192.168.1.20:2000).",
           "system_code": "Der 6-stellige Hex-Code Ihres DuoFern-Systems (beginnt mit 6F, z. B. 6F1A2B). Dies ist die Seriennummer des Dongles."
         }
       },
@@ -29,7 +29,7 @@
       }
     },
     "error": {
-      "cannot_connect": "Verbindung zum DuoFern-Stick fehlgeschlagen. Überprüfen Sie den Pfad der seriellen Schnittstelle.",
+      "cannot_connect": "Verbindung zum DuoFern-Stick fehlgeschlagen. Überprüfen Sie den seriellen Pfad oder die Netzwerk-URL.",
       "invalid_system_code": "Ungültiger Systemcode. Muss 6 Hex-Ziffern haben und mit 6F beginnen.",
       "invalid_device_code": "Ein oder mehrere Gerätecodes sind ungültig. Jeder muss genau 6 Hex-Ziffern haben.",
       "no_devices": "Bitte geben Sie mindestens einen Gerätecode ein.",

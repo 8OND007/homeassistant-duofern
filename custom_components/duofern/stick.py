@@ -24,7 +24,7 @@ import asyncio
 import logging
 from collections.abc import Callable
 
-import serial_asyncio_fast  # type: ignore[import-untyped]
+import serial  # type: ignore[import-untyped]
 
 from .const import (
     ACK_TIMEOUT,
@@ -39,6 +39,7 @@ from .protocol import (
     DuoFernId,
     frame_to_hex,
 )
+from .serial_connection import create_serial_connection
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -64,7 +65,7 @@ class DuoFernStick:
         """Initialize the stick manager.
 
         Args:
-            port:             Serial port path (e.g. /dev/ttyUSB0)
+            port:             Serial path or URL (e.g. /dev/ttyUSB0 or socket://host:port)
             system_code:      6-char hex dongle serial starting with 6F
             paired_devices:   List of paired device codes to register on init
             message_callback: Called for every dispatchable message received
@@ -112,14 +113,14 @@ class DuoFernStick:
         (
             self._transport,
             self._serial_protocol,
-        ) = await serial_asyncio_fast.create_serial_connection(
+        ) = await create_serial_connection(
             loop,
             lambda: DuoFernSerialProtocol(self._on_frame_received),
             self._port,
             baudrate=SERIAL_BAUDRATE,
-            bytesize=serial_asyncio_fast.serial.EIGHTBITS,
-            parity=serial_asyncio_fast.serial.PARITY_NONE,
-            stopbits=serial_asyncio_fast.serial.STOPBITS_ONE,
+            bytesize=serial.EIGHTBITS,
+            parity=serial.PARITY_NONE,
+            stopbits=serial.STOPBITS_ONE,
         )
 
         self._connected = True

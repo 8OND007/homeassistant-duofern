@@ -1,5 +1,9 @@
 # Changelog
 
+## [v2.2.7] — 2026-07-27
+
+- **Network serial support via ser2net** — the integration now accepts `socket://host:port` and `rfc2217://host:port` connection URLs alongside local serial paths (e.g. `/dev/ttyUSB0`). Useful for running Home Assistant in a VM while the DuoFern USB stick is connected to another machine on the local network. `socket://` uses the same fast async transport as a direct USB connection; `rfc2217://` uses a worker-thread transport to handle PySerial's blocking RFC2217 implementation. Existing USB setups are fully unaffected. The config flow serial field now shows discovered USB ports as dropdown suggestions while allowing a network URL to be typed freely. Thanks to [@MBj1703](https://github.com/MBj1703) for the original PR.
+
 ## [v2.2.6] — 2026-05-18
 
 - **Another try to fix 0x49 with firmware < 1.4 always reporting open** - completly ignoring 0x2C frames.
