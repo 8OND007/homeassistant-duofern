@@ -1,5 +1,9 @@
 # Changelog
 
+## [v2.2.8] — 2026-07-27
+
+- **Reconfigurable serial connection** — the serial port or network URL can now be changed after initial setup via **Settings → Devices & Services → DuoFern → ⋮ → Reconfigure**. The form pre-fills the current value, shows discovered USB ports as suggestions, and validates the connection before saving. The system code and paired device list are unaffected.
+
 ## [v2.2.7] — 2026-07-27
 
 - **Network serial support via ser2net** — the integration now accepts `socket://host:port` and `rfc2217://host:port` connection URLs alongside local serial paths (e.g. `/dev/ttyUSB0`). Useful for running Home Assistant in a VM while the DuoFern USB stick is connected to another machine on the local network. `socket://` uses the same fast async transport as a direct USB connection; `rfc2217://` uses a worker-thread transport to handle PySerial's blocking RFC2217 implementation. Existing USB setups are fully unaffected. The config flow serial field now shows discovered USB ports as dropdown suggestions while allowing a network URL to be typed freely. Thanks to [@MBj1703](https://github.com/MBj1703) for the original PR.
