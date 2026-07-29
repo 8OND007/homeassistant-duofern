@@ -131,7 +131,16 @@ async def async_setup_entry(
         dev_code = device_state.device_code
 
         # Weather/environment sensor readings (Umweltsensor, Sonnensensor etc.)
-        if dev_code.is_sensor:
+        # The Umweltsensor (0x69) is a channel device: "00" is the weather
+        # station sub-channel, "01" is the actor sub-channel (see
+        # DEVICE_CHANNELS in const.py). _handle_weather_data() in
+        # coordinator.py only ever writes readings onto "00", so creating
+        # these entities on "01" as well just produces dead entities that
+        # never receive a value.
+        _is_umweltsensor_actor_channel = (
+            dev_code.device_type == 0x69 and device_state.channel != "00"
+        )
+        if dev_code.is_sensor and not _is_umweltsensor_actor_channel:
             for description in SENSOR_DESCRIPTIONS:
                 entities.append(
                     DuoFernSensor(

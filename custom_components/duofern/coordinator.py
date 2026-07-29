@@ -701,13 +701,24 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
         self.async_set_updated_data(self.data)
 
     def _handle_weather_data(self, frame: bytearray) -> None:
-        """Handle Umweltsensor weather data (0F..1322...)."""
+        """Handle Umweltsensor weather data (0F..1322...).
+
+        The Umweltsensor (0x69) is a channel device: "00" is the weather
+        station sub-channel, "01" is the actor sub-channel (see
+        DEVICE_CHANNELS in const.py). Weather readings belong only on "00" —
+        looking the state up by the bare 6-char hex never matches, since
+        channel devices are stored under the 8-char channel key.
+        """
         device_code = DuoFernDecoder.extract_device_code(frame)
         self._maybe_trigger_discovery(device_code)
         weather = DuoFernDecoder.parse_weather_data(frame)
 
-        state = self.data.devices.get(device_code.hex)
+        state = self.data.devices.get(device_code.hex + "00")
         if state is None:
+            _LOGGER.debug(
+                "Weather data from unknown Umweltsensor channel %s00 — ignoring",
+                device_code.hex,
+            )
             return
 
         # Store weather readings in status.readings for sensor.py
@@ -755,15 +766,41 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
         """Handle battery status frame.
 
         From 30_DUOFERN.pm: #Sensoren Batterie (0FFF1323...)
+
+        Battery level is a whole-device property, not channel-specific, but
+        channel devices (0x43/0x65/0x69/0x74, see DEVICE_CHANNELS) are stored
+        under channel-suffixed keys ("691FC800", "691FC801", ...) — the bare
+        6-char hex never matches those. Mirror the reading onto every
+        registered channel; non-channel devices keep the original single-key
+        lookup unchanged.
         """
         device_code = DuoFernDecoder.extract_device_code(frame)
         self._maybe_trigger_discovery(device_code)
         info = DuoFernDecoder.parse_battery_status(frame)
-        state = self.data.devices.get(device_code.hex)
-        if state:
-            state.battery_state = str(info.get("batteryState", ""))
-            pct = info.get("batteryPercent")
-            state.battery_percent = int(pct) if pct is not None else None
+        battery_state = str(info.get("batteryState", ""))
+        pct = info.get("batteryPercent")
+        battery_percent = int(pct) if pct is not None else None
+
+        channels = DEVICE_CHANNELS.get(device_code.device_type)
+        if channels:
+            any_found = False
+            for ch in channels:
+                state = self.data.devices.get(device_code.hex + ch)
+                if state is None:
+                    continue
+                any_found = True
+                state.battery_state = battery_state
+                state.battery_percent = battery_percent
+            if not any_found:
+                _LOGGER.debug(
+                    "Battery status from unknown channel device %s — ignoring",
+                    device_code.hex,
+                )
+        else:
+            state = self.data.devices.get(device_code.hex)
+            if state:
+                state.battery_state = battery_state
+                state.battery_percent = battery_percent
         self.async_set_updated_data(self.data)
 
     def _handle_cmd_ack(self, frame: bytearray) -> None:
