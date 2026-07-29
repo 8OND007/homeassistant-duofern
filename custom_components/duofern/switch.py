@@ -75,6 +75,12 @@ class DuoFernAutomationSwitchDescription(SwitchEntityDescription):
     reading_key: str = ""
     automation_name: str = ""
     device_types: frozenset[int] = frozenset()
+    # When set, only create this entity for devices whose channel matches.
+    # None (default) means "any channel / non-channel device" → no change in
+    # behaviour for all existing descriptions that don't set this field.
+    # Used exclusively to separate Umweltsensor 0x69 channel "00" (weather
+    # station config) from channel "01" (actor automation flags).
+    channel_filter: str | None = None
 
 
 AUTOMATION_SWITCH_DESCRIPTIONS: tuple[DuoFernAutomationSwitchDescription, ...] = (
@@ -318,7 +324,9 @@ AUTOMATION_SWITCH_DESCRIPTIONS: tuple[DuoFernAutomationSwitchDescription, ...] =
         icon="mdi:undo",
         device_types=frozenset({0x4E}),
     ),
-    # Umweltsensor: DCF, triggerRain
+    # Umweltsensor channel "00" (weather station): config switches
+    # These come from the getConfig register decode (reg6/reg7) and must
+    # only appear on the "00" sub-channel, never on the "01" actor channel.
     DuoFernAutomationSwitchDescription(
         key="DCF",
         reading_key="DCF",
@@ -328,6 +336,7 @@ AUTOMATION_SWITCH_DESCRIPTIONS: tuple[DuoFernAutomationSwitchDescription, ...] =
         entity_category=EntityCategory.CONFIG,
         icon="mdi:antenna",
         device_types=frozenset({0x69}),
+        channel_filter="00",
     ),
     DuoFernAutomationSwitchDescription(
         key="triggerRain",
@@ -338,6 +347,65 @@ AUTOMATION_SWITCH_DESCRIPTIONS: tuple[DuoFernAutomationSwitchDescription, ...] =
         entity_category=EntityCategory.CONFIG,
         icon="mdi:weather-rainy",
         device_types=frozenset({0x69}),
+        channel_filter="00",
+    ),
+    # Umweltsensor channel "01" (actor): automation flags
+    # From 30_DUOFERN.pm %setsUmweltsensor01 — identical semantics to the
+    # same flags on Troll covers (same FD/FE command byte pattern).
+    DuoFernAutomationSwitchDescription(
+        key="windAutomatic",
+        reading_key="windAutomatic",
+        automation_name="windAutomatic",
+        translation_key="wind_automatic",
+        name="Wind Automatic",
+        entity_category=EntityCategory.CONFIG,
+        icon="mdi:weather-windy",
+        device_types=frozenset({0x69}),
+        channel_filter="01",
+    ),
+    DuoFernAutomationSwitchDescription(
+        key="rainAutomatic",
+        reading_key="rainAutomatic",
+        automation_name="rainAutomatic",
+        translation_key="rain_automatic",
+        name="Rain Automatic",
+        entity_category=EntityCategory.CONFIG,
+        icon="mdi:weather-rainy",
+        device_types=frozenset({0x69}),
+        channel_filter="01",
+    ),
+    DuoFernAutomationSwitchDescription(
+        key="windMode",
+        reading_key="windMode",
+        automation_name="windMode",
+        translation_key="wind_mode",
+        name="Wind Mode",
+        entity_category=EntityCategory.CONFIG,
+        icon="mdi:weather-windy",
+        device_types=frozenset({0x69}),
+        channel_filter="01",
+    ),
+    DuoFernAutomationSwitchDescription(
+        key="rainMode",
+        reading_key="rainMode",
+        automation_name="rainMode",
+        translation_key="rain_mode",
+        name="Rain Mode",
+        entity_category=EntityCategory.CONFIG,
+        icon="mdi:weather-rainy",
+        device_types=frozenset({0x69}),
+        channel_filter="01",
+    ),
+    DuoFernAutomationSwitchDescription(
+        key="reversal",
+        reading_key="reversal",
+        automation_name="reversal",
+        translation_key="reversal",
+        name="Reversal",
+        entity_category=EntityCategory.CONFIG,
+        icon="mdi:swap-vertical",
+        device_types=frozenset({0x69}),
+        channel_filter="01",
     ),
     # windowContact for HSA (Heizkörperantrieb)
     DuoFernAutomationSwitchDescription(
@@ -392,11 +460,19 @@ async def async_setup_entry(
         ):
             for desc in AUTOMATION_SWITCH_DESCRIPTIONS:
                 if dev_type in desc.device_types:
-                    entities.append(
-                        DuoFernAutomationSwitch(
-                            coordinator, device_state, hex_code, desc
+                    # channel_filter=None → no restriction (all existing descriptions).
+                    # channel_filter set → only create for the matching sub-channel.
+                    # This is used exclusively for 0x69 Umweltsensor to separate
+                    # channel "00" (config switches) from channel "01" (actor switches).
+                    if (
+                        desc.channel_filter is None
+                        or device_state.channel == desc.channel_filter
+                    ):
+                        entities.append(
+                            DuoFernAutomationSwitch(
+                                coordinator, device_state, hex_code, desc
+                            )
                         )
-                    )
 
         # 3. Boost switch for 0xE1 Heizkörperantrieb
         if dev_type == 0xE1:

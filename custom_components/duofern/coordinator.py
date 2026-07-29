@@ -158,6 +158,15 @@ class DuoFernDeviceState:
     #   max STATUS_RETRY_COUNT retries, each 60 s apart
     status_timeout_task: asyncio.Task | None = field(default=None, repr=False)
 
+    # Raw config register pages received from Umweltsensor 0x69 getConfig responses.
+    # Keyed by register index 0-7, value is the 20-char upper-case hex payload.
+    # Populated by _handle_weather_config(); decoded into status.readings
+    # via DuoFernDecoder.decode_weather_config() after every received page.
+    # FHEM stores these as hidden ".reg0"..".reg7" readings and re-runs
+    # DUOFERN_DecodeWeatherSensorConfig() after each arrival.
+    # Only set for 0x69 channel "00"; always empty for all other devices.
+    weather_config_registers: dict[int, str] = field(default_factory=dict)
+
 
 @dataclass
 class DuoFernData:
@@ -373,6 +382,11 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
         # Weather data from Umweltsensor
         if DuoFernDecoder.is_weather_data(frame):
             self._handle_weather_data(frame)
+            return
+
+        # Umweltsensor config register response (getConfig reply: 0FFF1B2[1-8])
+        if DuoFernDecoder.is_weather_config(frame):
+            self._handle_weather_config(frame)
             return
 
         # Battery status from sensors
@@ -737,20 +751,22 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
                 self.hass.bus.async_fire(
                     DUOFERN_EVENT,
                     {
-                        "device_code": device_code.hex,
+                        # Use the 8-char channel key so binary_sensor.py can match
+                        # against its _hex_code ("691FC800") directly.
+                        "device_code": device_code.hex + "00",
                         "event": "startRain",
                         "state": "on",
-                        "channel": "01",
+                        "channel": "00",
                     },
                 )
             else:
                 self.hass.bus.async_fire(
                     DUOFERN_EVENT,
                     {
-                        "device_code": device_code.hex,
+                        "device_code": device_code.hex + "00",
                         "event": "endRain",
                         "state": "off",
-                        "channel": "01",
+                        "channel": "00",
                     },
                 )
         if weather.wind is not None:
@@ -759,6 +775,55 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
         state.last_seen = dt_util.now().isoformat(timespec="seconds")
         # Cancel any pending status timeout — FHEM: RemoveInternalTimer on receipt.
         # state is guaranteed non-None here (checked above), no second lookup needed.
+        self._cancel_status_timeout(state)
+        self.async_set_updated_data(self.data)
+
+    def _handle_weather_config(self, frame: bytearray) -> None:
+        """Handle Umweltsensor config register frame (0FFF1B2[1-8]).
+
+        The device sends 8 separate register pages in response to a getConfig
+        command. Each page is stored in state.weather_config_registers; the
+        full config is re-decoded after every received page (missing pages use
+        all-zero defaults, same as FHEM's ReadingsVal "00"*20 default).
+
+        From 30_DUOFERN.pm: #Umweltsensor Konfiguration +
+          DUOFERN_DecodeWeatherSensorConfig()
+
+        Config readings land in status.readings on channel "00" (weather
+        station sub-channel), making them immediately available to the
+        existing Switch/Number/Select entities for DCF, interval, latitude,
+        longitude, timezone, triggerRain.
+        """
+        device_code = DuoFernDecoder.extract_device_code(frame)
+        reg_index, reg_data = DuoFernDecoder.parse_weather_config_register(frame)
+
+        # Config always belongs to the weather station sub-channel "00"
+        state = self.data.devices.get(device_code.hex + "00")
+        if state is None:
+            _LOGGER.debug(
+                "Weather config from unknown Umweltsensor %s00 — ignoring",
+                device_code.hex,
+            )
+            return
+
+        # Accumulate register pages (FHEM: readingsSingleUpdate ".reg$reg")
+        state.weather_config_registers[reg_index] = reg_data
+        _LOGGER.debug(
+            "Umweltsensor config register %d received for %s00 (%d/8 pages so far)",
+            reg_index,
+            device_code.hex,
+            len(state.weather_config_registers),
+        )
+
+        # Decode all available pages into named readings and merge.
+        # Missing pages use all-zero defaults; the entity values for DCF /
+        # interval / latitude / longitude / timezone / triggerRain only come
+        # from register 7 / register 6 and are correct as soon as those pages
+        # arrive, regardless of whether the other pages are present yet.
+        readings = DuoFernDecoder.decode_weather_config(state.weather_config_registers)
+        state.status.readings.update(readings)
+
+        state.last_seen = dt_util.now().isoformat(timespec="seconds")
         self._cancel_status_timeout(state)
         self.async_set_updated_data(self.data)
 

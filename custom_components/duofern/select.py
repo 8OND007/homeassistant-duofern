@@ -49,6 +49,11 @@ class DuoFernSelectDescription(SelectEntityDescription):
     device_types: frozenset[int] = frozenset()
     # Async method name on coordinator, signature: (device_code, value)
     coordinator_method: str = ""
+    # When set, only create this entity for the matching sub-channel.
+    # None (default) → no restriction; existing descriptions are unaffected.
+    # Used for 0x69 Umweltsensor to keep config selects on "00" and actor
+    # selects on "01".
+    channel_filter: str | None = None
 
 
 # All select entities keyed by (description.key)
@@ -110,7 +115,9 @@ SELECT_DESCRIPTIONS: tuple[DuoFernSelectDescription, ...] = (
         device_types=frozenset({0x4E}),
         coordinator_method="async_set_open_speed",
     ),
-    # --- Umweltsensor: transmit interval ---
+    # --- Umweltsensor channel "00": transmit interval ---
+    # Comes from the getConfig register decode (reg7 byte 0); must only
+    # appear on the "00" (weather station) sub-channel.
     DuoFernSelectDescription(
         key="interval",
         translation_key="interval",
@@ -143,6 +150,34 @@ SELECT_DESCRIPTIONS: tuple[DuoFernSelectDescription, ...] = (
         icon="mdi:timer-outline",
         device_types=frozenset({0x69}),
         coordinator_method="async_set_umweltsensor_interval",
+        channel_filter="00",
+    ),
+    # --- Umweltsensor channel "01" (actor): wind/rain movement direction ---
+    # From 30_DUOFERN.pm %setsUmweltsensor01 — same options and commands as
+    # the existing windDirection/rainDirection selects on Troll covers.
+    DuoFernSelectDescription(
+        key="windDirection",
+        translation_key="wind_direction",
+        reading_key="windDirection",
+        name="Wind Direction",
+        options=["up", "down"],
+        entity_category=EntityCategory.CONFIG,
+        icon="mdi:arrow-up-down",
+        device_types=frozenset({0x69}),
+        coordinator_method="async_set_wind_direction",
+        channel_filter="01",
+    ),
+    DuoFernSelectDescription(
+        key="rainDirection",
+        translation_key="rain_direction",
+        reading_key="rainDirection",
+        name="Rain Direction",
+        options=["up", "down"],
+        entity_category=EntityCategory.CONFIG,
+        icon="mdi:arrow-up-down",
+        device_types=frozenset({0x69}),
+        coordinator_method="async_set_rain_direction",
+        channel_filter="01",
     ),
 )
 
@@ -160,9 +195,16 @@ async def async_setup_entry(
         dev_type = device_state.device_code.device_type
         for desc in SELECT_DESCRIPTIONS:
             if dev_type in desc.device_types:
-                entities.append(
-                    DuoFernSelect(coordinator, device_state, hex_code, desc)
-                )
+                # channel_filter=None → no restriction (all existing descriptions).
+                # channel_filter set → only create for the matching sub-channel.
+                # Used for 0x69 Umweltsensor only; no other device type is affected.
+                if (
+                    desc.channel_filter is None
+                    or device_state.channel == desc.channel_filter
+                ):
+                    entities.append(
+                        DuoFernSelect(coordinator, device_state, hex_code, desc)
+                    )
 
     # Register this platform's unique_ids centrally so __init__.py can
     # remove stale entities from previous integration versions.

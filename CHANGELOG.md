@@ -1,5 +1,17 @@
 # Changelog
 
+## [v2.3.0] — 2026-07-29
+
+- **Rain binary sensor for Umweltsensor (0x69)** — a new `moisture` binary sensor ("Rain Detected") is created on the weather station sub-channel ("00"). It updates from the `isRaining` bit decoded in every ~1-minute weather frame and reacts instantly to `startRain`/`endRain` coordinator events. Last known state is restored across HA restarts.
+
+- **Weather config register decode** — the coordinator now handles `getConfig` responses (`0FFF1B2[1-8]`). The device's 8 config register pages are accumulated and decoded after each arrival (translated from `DUOFERN_DecodeWeatherSensorConfig()` in `30_DUOFERN.pm`). Decoded values (interval, DCF, timezone, latitude, longitude, triggerRain/Wind/Temperature/Dawn/Dusk/Sun) land on the "00" sub-channel and immediately populate the corresponding config entities.
+
+- **Actor sub-channel ("01") entities** — the Umweltsensor actor now has its own entity set matching `%setsUmweltsensor01`: Running Time number (0–100 s), Wind Direction / Rain Direction selects, and Wind Automatic / Rain Automatic / Wind Mode / Rain Mode / Reversal switches.
+
+- **Channel separation (channel_filter)** — a `channel_filter` field was added to `DuoFernNumberDescription`, `DuoFernSelectDescription`, and `DuoFernAutomationSwitchDescription`. Umweltsensor config entities are now pinned to "00" and actor entities to "01", eliminating duplicates that previously appeared on both sub-channels.
+
+- **Fix rain event channel** — `startRain` / `endRain` events from `_handle_weather_data()` were emitting `device_code = bare_hex` with `channel = "01"`. Corrected to `device_code = bare_hex + "00"` with `channel = "00"` so the rain binary sensor matches its own hex_code.
+
 ## [v2.2.9] — 2026-07-29
 
 - **Fix Umweltsensor (0x69) weather readings and battery status** — battery level from sub-channel devices and weather data from Umweltsensor devices were being dropped because the coordinator looked them up under the bare device code instead of the channel-suffixed key ("00") these channel devices actually use. Weather data is now correctly matched to the "00" sub-channel, battery status is mirrored onto all of a channel device's sub-channels, and dead sensor entities are no longer created on the Umweltsensor's actor sub-channel ("01").
