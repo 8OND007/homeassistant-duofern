@@ -1,5 +1,9 @@
 # Changelog
 
+## [v2.2.9] — 2026-07-29
+
+- **Fix Umweltsensor (0x69) weather readings and battery status** — battery level from sub-channel devices and weather data from Umweltsensor devices were being dropped because the coordinator looked them up under the bare device code instead of the channel-suffixed key ("00") these channel devices actually use. Weather data is now correctly matched to the "00" sub-channel, battery status is mirrored onto all of a channel device's sub-channels, and dead sensor entities are no longer created on the Umweltsensor's actor sub-channel ("01").
+
 ## [v2.2.8] — 2026-07-27
 
 - **Reconfigurable serial connection** — the serial port or network URL can now be changed after initial setup via **Settings → Devices & Services → DuoFern → ⋮ → Reconfigure**. The form pre-fills the current value, shows discovered USB ports as suggestions, and validates the connection before saving. The system code and paired device list are unaffected.
