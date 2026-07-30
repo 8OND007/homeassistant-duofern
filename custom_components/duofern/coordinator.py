@@ -2499,8 +2499,12 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
         """
         if self._stick is None:
             return
-        code = device_code.raw[3:6]
-        frame = bytes.fromhex(f"0D001B400000000000000000000000000000{code.hex()}00")
+        # Device code goes at bytes 18-20 of the 22-byte frame (same as all
+        # DuoFernEncoder.build_* methods: f[18:21] = device_code.raw).
+        # raw is exactly 3 bytes; raw[3:6] is always empty — use raw.hex() directly.
+        frame = bytes.fromhex(
+            f"0D001B400000000000000000000000000000{device_code.raw.hex()}00"
+        )
         await self._stick.send_command(frame)
 
     async def async_write_weather_config(self, device_code: DuoFernId) -> None:
@@ -2526,16 +2530,18 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
                 "writeConfig: channel 00 state not found for %s", device_code.hex
             )
             return
-        code = device_code.raw[3:6]
+        # Device code at bytes 18-20 (same layout as all other TX frames).
+        # raw is 3 bytes; raw[3:6] always returns empty bytes — use raw.hex().
+        dev_hex = device_code.raw.hex()
         for x in range(8):
             reg_data = state.weather_config_registers.get(x, "0" * 20)
             if len(reg_data) != 20:
                 _LOGGER.warning(
-                    "writeConfig: invalid register data for reg%d — skipping", x
+                    "writeConfig: invalid register data for reg%d — sending zeros", x
                 )
-                continue
+                reg_data = "0" * 20  # match FHEM: always sends all 8 registers
             reg_num = f"{0x81 + x:02x}"
-            frame_hex = f"0DFF1B{reg_num}{reg_data.lower()}00000000{code.hex()}00"
+            frame_hex = f"0DFF1B{reg_num}{reg_data.lower()}00000000{dev_hex}00"
             try:
                 frame = bytes.fromhex(frame_hex)
                 await self._stick.send_command(frame)
@@ -2759,14 +2765,28 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
 
         From 30_DUOFERN.pm:
           time => $duoSetTime = "0D0110800001mmmmmmmmnnnnnn0000000000yyyyyy00"
-          where mm=date (year,month,weekday,day) and nn=time (hour,min,sec)
+          where mm=date (year-2000,month,weekday,day) and nn=time (hour,min,sec)
+
+        **BCD encoding:** FHEM uses sprintf("%02d", value) to embed decimal
+        digits as hex chars in the template. 15 → "15" → byte 0x15 (BCD).
+        Python must use :02d (decimal format), NOT :02x (hex format).
+        Example: day 30 → :02d → "30" → 0x30 (BCD ✓); :02x → "1e" → 0x1E (✗).
+
+        **Weekday encoding:** Perl localtime: 0=Sun,1=Mon,...,6=Sat.
+        FHEM adjusts: Sun→7, Mon→0, Tue→1,...,Sat→5.
+        Python weekday(): Mon=0,...,Sat=5,Sun=6.
+        The only difference is Sunday: Python=6, FHEM=7.
         """
-        now = dt_util.now()  # uses dt_util.now() for timezone-aware local time
-        wday = now.weekday()  # 0=Mon, already matches FHEM after their adjustment
-        mm = f"{now.year - 2000:02x}{now.month:02x}{wday:02x}{now.day:02x}"
-        nn = f"{now.hour:02x}{now.minute:02x}{now.second:02x}"
-        code = device_code.raw[3:6]
-        frame = bytes.fromhex(f"0D011080000{mm}{nn}0000000000{code.hex()}00")
+        now = dt_util.now()
+        py_wday = now.weekday()  # 0=Mon..5=Sat, 6=Sun
+        # FHEM weekday: Mon=0..Sat=5, Sun=7 (not 6)
+        fhem_wday = 7 if py_wday == 6 else py_wday
+        # BCD encoding: decimal format strings embedded in hex template (%02d, not %02x)
+        mm = f"{now.year - 2000:02d}{now.month:02d}{fhem_wday:02d}{now.day:02d}"
+        nn = f"{now.hour:02d}{now.minute:02d}{now.second:02d}"
+        frame = bytes.fromhex(
+            f"0D0110800001{mm}{nn}0000000000{device_code.raw.hex()}00"
+        )
         if self._stick:
             await self._stick.send_command(frame)
 
