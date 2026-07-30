@@ -112,6 +112,26 @@ SENSOR_DESCRIPTIONS: tuple[DuoFernSensorDescription, ...] = (
         native_unit_of_measurement="°",
         icon="mdi:weather-sunny",
     ),
+    # Device internal clock — populated when the getTime button is pressed.
+    # Unavailable until the first getTime response arrives (reading_key absent
+    # from readings). EntityCategory.DIAGNOSTIC keeps them off the dashboard.
+    # From 30_DUOFERN.pm: readingsBulkUpdate "date"/"time" on 0F..1020 frame.
+    DuoFernSensorDescription(
+        key="device_date",
+        reading_key="date",
+        translation_key="device_date",
+        name="Device Date",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        icon="mdi:calendar-clock",
+    ),
+    DuoFernSensorDescription(
+        key="device_time",
+        reading_key="time",
+        translation_key="device_time",
+        name="Device Time",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        icon="mdi:clock-outline",
+    ),
 )
 
 

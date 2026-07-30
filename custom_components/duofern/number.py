@@ -279,7 +279,7 @@ NUMBER_DESCRIPTIONS: tuple[DuoFernNumberDescription, ...] = (
         entity_category=EntityCategory.CONFIG,
         icon="mdi:map-marker",
         device_types=frozenset({0x69}),
-        coordinator_method="async_set_umweltsensor_number",
+        coordinator_method="async_set_umweltsensor_latitude",
         channel_filter="00",
     ),
     DuoFernNumberDescription(
@@ -299,7 +299,7 @@ NUMBER_DESCRIPTIONS: tuple[DuoFernNumberDescription, ...] = (
         entity_category=EntityCategory.CONFIG,
         icon="mdi:map-marker",
         device_types=frozenset({0x69}),
-        coordinator_method="async_set_umweltsensor_number",
+        coordinator_method="async_set_umweltsensor_longitude",
         channel_filter="00",
     ),
     DuoFernNumberDescription(
@@ -314,8 +314,43 @@ NUMBER_DESCRIPTIONS: tuple[DuoFernNumberDescription, ...] = (
         entity_category=EntityCategory.CONFIG,
         icon="mdi:clock-outline",
         device_types=frozenset({0x69}),
-        coordinator_method="async_set_umweltsensor_number",
+        coordinator_method="async_set_umweltsensor_timezone",
         channel_filter="00",
+    ),
+    # --- Umweltsensor channel "01" (actor): position and running time ---
+    # From 30_DUOFERN.pm %setsDefaultRollerShutter inherited by channel "01":
+    #   sunPosition:slider,0,1,100 + ventilatingPosition:slider,0,1,100
+    # Same commands as other format-23a covers (async_set_sun_position /
+    # async_set_ventilating_position), addressed to the actor sub-device.
+    DuoFernNumberDescription(
+        key="sunPosition_umwelt01",
+        translation_key="sun_position",
+        reading_key="sunPosition",
+        name="Sun Position",
+        native_min_value=0,
+        native_max_value=100,
+        native_step=1,
+        native_unit_of_measurement="%",
+        entity_category=EntityCategory.CONFIG,
+        icon="mdi:sun-angle",
+        device_types=frozenset({0x69}),
+        coordinator_method="async_set_sun_position",
+        channel_filter="01",
+    ),
+    DuoFernNumberDescription(
+        key="ventilatingPosition_umwelt01",
+        translation_key="ventilating_position",
+        reading_key="ventilatingPosition",
+        name="Ventilating Position",
+        native_min_value=0,
+        native_max_value=100,
+        native_step=1,
+        native_unit_of_measurement="%",
+        entity_category=EntityCategory.CONFIG,
+        icon="mdi:air-filter",
+        device_types=frozenset({0x69}),
+        coordinator_method="async_set_ventilating_position",
+        channel_filter="01",
     ),
     # --- Umweltsensor channel "01" (actor): running time ---
     # From 30_DUOFERN.pm %setsUmweltsensor01: runningTime:slider,0,1,100

@@ -407,6 +407,90 @@ AUTOMATION_SWITCH_DESCRIPTIONS: tuple[DuoFernAutomationSwitchDescription, ...] =
         device_types=frozenset({0x69}),
         channel_filter="01",
     ),
+    # Umweltsensor channel "01" (actor): setsDefaultRollerShutter automation flags.
+    # From 30_DUOFERN.pm line 624:
+    #   %sets = (%setsDefaultRollerShutter, %setsUmweltsensor01, %setsPair)
+    #           if ($hash->{CODE} =~ /^69....01/);
+    # The actor sub-channel behaves like a Rohrmotor/Troll cover — the same
+    # command frames apply (async_set_automation uses FD/FE byte pattern
+    # via %commands in 30_DUOFERN.pm, identical for all format-23a covers).
+    DuoFernAutomationSwitchDescription(
+        key="manualMode_umwelt01",
+        reading_key="manualMode",
+        automation_name="manualMode",
+        translation_key="manual_mode",
+        name="Manual Mode",
+        entity_category=EntityCategory.CONFIG,
+        icon="mdi:hand-back-right",
+        device_types=frozenset({0x69}),
+        channel_filter="01",
+    ),
+    DuoFernAutomationSwitchDescription(
+        key="timeAutomatic_umwelt01",
+        reading_key="timeAutomatic",
+        automation_name="timeAutomatic",
+        translation_key="time_automatic",
+        name="Time Automatic",
+        entity_category=EntityCategory.CONFIG,
+        icon="mdi:clock-automatic",
+        device_types=frozenset({0x69}),
+        channel_filter="01",
+    ),
+    DuoFernAutomationSwitchDescription(
+        key="dawnAutomatic_umwelt01",
+        reading_key="dawnAutomatic",
+        automation_name="dawnAutomatic",
+        translation_key="dawn_automatic",
+        name="Dawn Automatic",
+        entity_category=EntityCategory.CONFIG,
+        icon="mdi:weather-sunset-up",
+        device_types=frozenset({0x69}),
+        channel_filter="01",
+    ),
+    DuoFernAutomationSwitchDescription(
+        key="duskAutomatic_umwelt01",
+        reading_key="duskAutomatic",
+        automation_name="duskAutomatic",
+        translation_key="dusk_automatic",
+        name="Dusk Automatic",
+        entity_category=EntityCategory.CONFIG,
+        icon="mdi:weather-sunset-down",
+        device_types=frozenset({0x69}),
+        channel_filter="01",
+    ),
+    DuoFernAutomationSwitchDescription(
+        key="sunAutomatic_umwelt01",
+        reading_key="sunAutomatic",
+        automation_name="sunAutomatic",
+        translation_key="sun_automatic",
+        name="Sun Automatic",
+        entity_category=EntityCategory.CONFIG,
+        icon="mdi:weather-sunny",
+        device_types=frozenset({0x69}),
+        channel_filter="01",
+    ),
+    DuoFernAutomationSwitchDescription(
+        key="sunMode_umwelt01",
+        reading_key="sunMode",
+        automation_name="sunMode",
+        translation_key="sun_mode",
+        name="Sun Mode",
+        entity_category=EntityCategory.CONFIG,
+        icon="mdi:white-balance-sunny",
+        device_types=frozenset({0x69}),
+        channel_filter="01",
+    ),
+    DuoFernAutomationSwitchDescription(
+        key="ventilatingMode_umwelt01",
+        reading_key="ventilatingMode",
+        automation_name="ventilatingMode",
+        translation_key="ventilating_mode",
+        name="Ventilating Mode",
+        entity_category=EntityCategory.CONFIG,
+        icon="mdi:air-filter",
+        device_types=frozenset({0x69}),
+        channel_filter="01",
+    ),
     # windowContact for HSA (Heizkörperantrieb)
     DuoFernAutomationSwitchDescription(
         key="windowContact",
@@ -715,6 +799,9 @@ class DuoFernAutomationSwitch(
         """Enable this automation flag (send FD command to device).
 
         windowContact and modeChange use dedicated coordinator methods.
+        DCF and triggerRain on the Umweltsensor are register-based (wCmds in
+        30_DUOFERN.pm) — they update the local config register and are pushed
+        to the device via the writeConfig button, NOT via a direct command.
         All other automations use the standard FD/FE byte pattern.
         """
         name = self.entity_description.automation_name
@@ -722,6 +809,12 @@ class DuoFernAutomationSwitch(
             await self.coordinator.async_set_window_contact(self._device_code, True)
         elif name == "modeChange":
             await self.coordinator.async_set_mode_change(self._device_code)
+        elif name == "DCF":
+            await self.coordinator.async_set_umweltsensor_dcf(self._device_code, "on")
+        elif name == "triggerRain":
+            await self.coordinator.async_set_umweltsensor_trigger_rain(
+                self._device_code, "on"
+            )
         else:
             await self.coordinator.async_set_automation(self._device_code, name, True)
 
@@ -729,12 +822,20 @@ class DuoFernAutomationSwitch(
         """Disable this automation flag (send FE command to device).
 
         windowContact and modeChange use dedicated coordinator methods.
+        DCF and triggerRain on the Umweltsensor are register-based — see
+        async_turn_on for details.
         """
         name = self.entity_description.automation_name
         if name == "windowContact":
             await self.coordinator.async_set_window_contact(self._device_code, False)
         elif name == "modeChange":
             await self.coordinator.async_set_mode_change(self._device_code)  # toggle
+        elif name == "DCF":
+            await self.coordinator.async_set_umweltsensor_dcf(self._device_code, "off")
+        elif name == "triggerRain":
+            await self.coordinator.async_set_umweltsensor_trigger_rain(
+                self._device_code, "off"
+            )
         else:
             await self.coordinator.async_set_automation(self._device_code, name, False)
 

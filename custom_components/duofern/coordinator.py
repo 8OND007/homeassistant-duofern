@@ -384,6 +384,11 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
             self._handle_weather_data(frame)
             return
 
+        # Zeit (time) response from Umweltsensor (getTime reply: 0F..1020)
+        if DuoFernDecoder.is_time_response(frame):
+            self._handle_time_response(frame)
+            return
+
         # Umweltsensor config register response (getConfig reply: 0FFF1B2[1-8])
         if DuoFernDecoder.is_weather_config(frame):
             self._handle_weather_config(frame)
@@ -775,6 +780,34 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
         state.last_seen = dt_util.now().isoformat(timespec="seconds")
         # Cancel any pending status timeout — FHEM: RemoveInternalTimer on receipt.
         # state is guaranteed non-None here (checked above), no second lookup needed.
+        self._cancel_status_timeout(state)
+        self.async_set_updated_data(self.data)
+
+    def _handle_time_response(self, frame: bytearray) -> None:
+        """Handle Umweltsensor Zeit frame (0F..1020...).
+
+        Triggered by the getTime button. Stores the device's internal clock
+        as "date" and "time" string readings on channel "00", making them
+        visible on the date/time sensor entities in HA.
+
+        From 30_DUOFERN.pm: #Umweltsensor/Handzentrale Zeit
+          $msg =~ m/0F..1020.{36}/
+          date: "20"+year+"-"+month+"-"+day → readingsBulkUpdate "date"
+          time: hour+":"+minute+":"+second → readingsBulkUpdate "time"
+        Values are BCD-encoded (FHEM reads them as hex strings and concatenates
+        directly, treating e.g. 0x26 as "26" for the year 2026).
+        """
+        device_code = DuoFernDecoder.extract_device_code(frame)
+        state = self.data.devices.get(device_code.hex + "00")
+        if state is None:
+            _LOGGER.debug(
+                "Time response from unknown Umweltsensor %s00 — ignoring",
+                device_code.hex,
+            )
+            return
+        readings = DuoFernDecoder.parse_time_frame(frame)
+        state.status.readings.update(readings)
+        state.last_seen = dt_util.now().isoformat(timespec="seconds")
         self._cancel_status_timeout(state)
         self.async_set_updated_data(self.data)
 
@@ -2474,59 +2507,252 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
         """Write stored configuration registers to Umweltsensor.
 
         From 30_DUOFERN.pm writeConfig:
-          Reads .reg0.-.reg7 readings and sends each as a writeConfig frame.
           $duoWeatherWriteConfig = "0DFF1Brrnnnnnnnnnnnnnnnnnnnn00000000yyyyyy00"
-          rr = register number 0x81-0x88
+          rr = register number 0x81-0x88 (reg index 0-7 → 0x81-0x88)
           nn = 20 hex chars (10 bytes) of register data
-        This pushes all locally-stored config changes (latitude, longitude,
-        timezone, DCF, interval, triggerRain) to the physical device.
+
+        Reads register pages from state.weather_config_registers (populated by
+        _handle_weather_config() on getConfig response and updated locally by
+        async_set_umweltsensor_* methods). Missing pages default to all zeros.
+
+        Config always lives on channel "00" (weather station sub-device).
         """
         if self._stick is None:
             return
-        state = self.data.devices.get(device_code.hex)
+        # Config registers live on channel "00" — never on the base 6-char key
+        state = self.data.devices.get(device_code.hex + "00")
         if state is None:
+            _LOGGER.warning(
+                "writeConfig: channel 00 state not found for %s", device_code.hex
+            )
             return
         code = device_code.raw[3:6]
         for x in range(8):
-            reg_key = f".reg{x}"
-            reg_data = state.status.readings.get(reg_key, "00000000000000000000")
+            reg_data = state.weather_config_registers.get(x, "0" * 20)
+            if len(reg_data) != 20:
+                _LOGGER.warning(
+                    "writeConfig: invalid register data for reg%d — skipping", x
+                )
+                continue
             reg_num = f"{0x81 + x:02x}"
-            frame_hex = f"0DFF1B{reg_num}{reg_data}00000000{code.hex()}00"
+            frame_hex = f"0DFF1B{reg_num}{reg_data.lower()}00000000{code.hex()}00"
             try:
                 frame = bytes.fromhex(frame_hex)
                 await self._stick.send_command(frame)
             except Exception:
-                _LOGGER.warning("writeConfig: invalid register data for reg%d", x)
+                _LOGGER.warning("writeConfig: could not send reg%d frame", x)
+
+    # ------------------------------------------------------------------
+    # Umweltsensor config register helpers (wCmds encoding, 30_DUOFERN.pm)
+    # ------------------------------------------------------------------
+
+    def _raw_update_reg_byte(
+        self,
+        state: DuoFernDeviceState,
+        reg_index: int,
+        byte_pos: int,
+        new_bits: int,
+        bit_mask: int,
+    ) -> None:
+        """Update one byte in a config register in-place WITHOUT re-decoding or notifying HA.
+
+        Call _flush_weather_config() after all batch updates are done.
+        bit_mask controls which bits are owned by this field; other bits are preserved.
+        """
+        reg_hex = state.weather_config_registers.get(reg_index, "0" * 20)
+        reg_bytes = bytearray.fromhex(reg_hex)
+        b = reg_bytes[byte_pos]
+        reg_bytes[byte_pos] = (b & (~bit_mask & 0xFF)) | (new_bits & bit_mask)
+        state.weather_config_registers[reg_index] = reg_bytes.hex().upper()
+
+    def _raw_update_reg_word32(
+        self,
+        state: DuoFernDeviceState,
+        reg_index: int,
+        byte_pos: int,
+        new_bits_32: int,
+        bit_mask_32: int,
+    ) -> None:
+        """Update a 32-bit (4-byte) word in a config register in-place WITHOUT notify.
+
+        All DuoFern wCmds size=4 words fit within a single register (never span a
+        register boundary) — verified from wCmds reg/byte positions in 30_DUOFERN.pm.
+        Big-endian byte order, matching DuoFern protocol and FHEM Perl unpack.
+        """
+        reg_hex = state.weather_config_registers.get(reg_index, "0" * 20)
+        reg_bytes = bytearray.fromhex(reg_hex)
+        current = (
+            (reg_bytes[byte_pos] << 24)
+            | (reg_bytes[byte_pos + 1] << 16)
+            | (reg_bytes[byte_pos + 2] << 8)
+            | reg_bytes[byte_pos + 3]
+        )
+        updated = (current & (~bit_mask_32 & 0xFFFFFFFF)) | (new_bits_32 & bit_mask_32)
+        reg_bytes[byte_pos] = (updated >> 24) & 0xFF
+        reg_bytes[byte_pos + 1] = (updated >> 16) & 0xFF
+        reg_bytes[byte_pos + 2] = (updated >> 8) & 0xFF
+        reg_bytes[byte_pos + 3] = updated & 0xFF
+        state.weather_config_registers[reg_index] = reg_bytes.hex().upper()
+
+    def _flush_weather_config(self, state: DuoFernDeviceState) -> None:
+        """Re-decode all config registers and push one update to HA.
+
+        Called after one or more _raw_update_reg_* calls so the full decode and
+        async_set_updated_data() fire exactly once per user action instead of
+        once per channel (5× for trigger methods).
+        """
+        readings = DuoFernDecoder.decode_weather_config(state.weather_config_registers)
+        state.status.readings.update(readings)
+        self.async_set_updated_data(self.data)
+
+    def _set_weather_config_byte(
+        self,
+        state: DuoFernDeviceState,
+        reg_index: int,
+        byte_pos: int,
+        new_bits: int,
+        bit_mask: int,
+    ) -> None:
+        """Update one byte in a config register and re-decode + notify HA.
+
+        Convenience wrapper for single-field updates (DCF, interval, lat, lon,
+        tz, triggerRain). Multi-channel trigger methods use _raw_update_reg_byte
+        + _flush_weather_config directly to batch 5 channels into one notify.
+
+        From 30_DUOFERN.pm wCmds set handler:
+          $reg &= ~mask          # clear owned bits
+          $reg |= enable | value # set enable flag + value
+        translated to:
+          byte = (byte & ~bit_mask) | (new_bits & bit_mask)
+        """
+        self._raw_update_reg_byte(state, reg_index, byte_pos, new_bits, bit_mask)
+        self._flush_weather_config(state)
+
+    def _set_weather_config_word32(
+        self,
+        state: DuoFernDeviceState,
+        reg_index: int,
+        byte_pos: int,
+        new_bits_32: int,
+        bit_mask_32: int,
+    ) -> None:
+        """Update a 32-bit word in a config register and re-decode + notify HA.
+
+        Convenience wrapper for single-field 32-bit updates. Multi-channel
+        trigger methods use _raw_update_reg_word32 + _flush_weather_config.
+        """
+        self._raw_update_reg_word32(
+            state, reg_index, byte_pos, new_bits_32, bit_mask_32
+        )
+        self._flush_weather_config(state)
 
     async def async_set_umweltsensor_interval(
         self, device_code: DuoFernId, value: str
     ) -> None:
-        """Set Umweltsensor transmit interval (wCmds register encoding).
+        """Set Umweltsensor transmit interval and store in config registers.
 
-        From 30_DUOFERN.pm %wCmds interval: reg=7, byte=0, mask=0xff
-        Stored locally; sent on next writeConfig.
+        From 30_DUOFERN.pm %wCmds interval:
+          reg=7, byte=0, enable=0x80, mask=0xff, shift=0, offset=0
+          "off" → clear enable bit (bit 7) only, preserve value bits
+          "N"   → byte = 0x80 | N   (bit 7 = enabled, bits 6-0 = minutes)
+
+        Stored in weather_config_registers[7]; sent to device on writeConfig.
         """
-        state = self.data.devices.get(device_code.hex)
-        if state:
-            state.status.readings["interval"] = value
-            self.async_set_updated_data(self.data)
+        state = self.data.devices.get(device_code.hex + "00")
+        if state is None:
+            return
+        if value == "off":
+            # "off" path in wCmds: $reg &= ~enable → clear bit 7 only
+            self._set_weather_config_byte(state, 7, 0, 0x00, 0x80)
+        else:
+            int_val = max(1, min(100, int(value)))
+            # Full byte: clear all, set enable bit, set value in bits 6-0
+            self._set_weather_config_byte(state, 7, 0, 0x80 | int_val, 0xFF)
 
-    async def async_set_umweltsensor_number(
+    async def async_set_umweltsensor_dcf(
+        self, device_code: DuoFernId, value: str
+    ) -> None:
+        """Set Umweltsensor DCF time synchronisation flag in config register.
+
+        From 30_DUOFERN.pm %wCmds DCF:
+          reg=7, byte=1, enable=0x02, mask=0x02, min=0, max=0
+          "on"  → set bit 1
+          "off" → clear bit 1
+        Stored in weather_config_registers[7]; sent to device on writeConfig.
+        """
+        state = self.data.devices.get(device_code.hex + "00")
+        if state is None:
+            return
+        new_bits = 0x02 if value == "on" else 0x00
+        self._set_weather_config_byte(state, 7, 1, new_bits, 0x02)
+
+    async def async_set_umweltsensor_trigger_rain(
+        self, device_code: DuoFernId, value: str
+    ) -> None:
+        """Set Umweltsensor rain trigger enable flag in config register.
+
+        From 30_DUOFERN.pm %wCmds triggerRain:
+          reg=6, byte=0, enable=0x80, mask=0x80, min=0, max=0
+          "on"  → set bit 7 of reg6 byte 0
+          "off" → clear bit 7 of reg6 byte 0
+        Bit 7 of reg6 byte 0 is shared with triggerWind[0] enable (bit 5)
+        and value (bits 4-0) — only bit 7 is touched here.
+        Stored in weather_config_registers[6]; sent to device on writeConfig.
+        """
+        state = self.data.devices.get(device_code.hex + "00")
+        if state is None:
+            return
+        new_bits = 0x80 if value == "on" else 0x00
+        self._set_weather_config_byte(state, 6, 0, new_bits, 0x80)
+
+    async def async_set_umweltsensor_latitude(
         self, device_code: DuoFernId, value: float
     ) -> None:
-        """Stub for Umweltsensor register-based number settings
-        (latitude/longitude/timezone).
+        """Set Umweltsensor latitude in config register.
 
-        From 30_DUOFERN.pm %wCmds: these values are encoded into device registers
-        and sent via writeConfig. Storing value locally; will be sent on
-        next writeConfig.
-        Full register encoding from wCmds requires separate implementation if needed.
+        From 30_DUOFERN.pm %wCmds latitude:
+          reg=7, byte=5, enable=0x00, mask=0xff, min=0, max=90, offset=0
+          Protocol encodes latitude as one unsigned byte (0-90); southern
+          hemisphere (negative latitudes) cannot be represented.
+        Stored in weather_config_registers[7]; sent to device on writeConfig.
         """
-        _LOGGER.info(
-            "Umweltsensor config value %s received — "
-            "use writeConfig button to push to device",
-            value,
-        )
+        state = self.data.devices.get(device_code.hex + "00")
+        if state is None:
+            return
+        lat = max(0, min(90, int(round(value))))
+        self._set_weather_config_byte(state, 7, 5, lat, 0xFF)
+
+    async def async_set_umweltsensor_longitude(
+        self, device_code: DuoFernId, value: float
+    ) -> None:
+        """Set Umweltsensor longitude in config register.
+
+        From 30_DUOFERN.pm %wCmds longitude:
+          reg=7, byte=7, enable=0x00, mask=0xff, min=-90, max=90, offset=256
+          Negative values stored as value+256 (e.g. -9 → 247).
+        Stored in weather_config_registers[7]; sent to device on writeConfig.
+        """
+        state = self.data.devices.get(device_code.hex + "00")
+        if state is None:
+            return
+        lon = max(-90, min(90, int(round(value))))
+        stored = (lon + 256) if lon < 0 else lon
+        self._set_weather_config_byte(state, 7, 7, stored, 0xFF)
+
+    async def async_set_umweltsensor_timezone(
+        self, device_code: DuoFernId, value: float
+    ) -> None:
+        """Set Umweltsensor timezone offset in config register.
+
+        From 30_DUOFERN.pm %wCmds timezone:
+          reg=7, byte=4, enable=0x00, mask=0xff, min=0, max=23, offset=0
+        Stored in weather_config_registers[7]; sent to device on writeConfig.
+        """
+        state = self.data.devices.get(device_code.hex + "00")
+        if state is None:
+            return
+        tz = max(0, min(23, int(round(value))))
+        self._set_weather_config_byte(state, 7, 4, tz, 0xFF)
 
     async def async_set_time(self, device_code: DuoFernId) -> None:
         """Send current time to Umweltsensor.
@@ -2543,6 +2769,302 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
         frame = bytes.fromhex(f"0D011080000{mm}{nn}0000000000{code.hex()}00")
         if self._stick:
             await self._stick.send_command(frame)
+
+    # ------------------------------------------------------------------
+    # Umweltsensor trigger threshold setters (wCmds, 30_DUOFERN.pm)
+    # These write to the local weather_config_registers and are pushed
+    # to the device via the writeConfig button. All are channel "00" only.
+    # Multi-channel triggers (count=5) use _raw_update_reg_* in a loop
+    # and call _flush_weather_config once at the end for a single HA notify.
+    # ------------------------------------------------------------------
+
+    async def async_set_trigger_wind(self, device_code: DuoFernId, value: str) -> None:
+        """Set wind trigger thresholds for 5 channels.
+
+        From 30_DUOFERN.pm %wCmds triggerWind:
+          reg=6, byte=0..4, size=1, count=5
+          enable=0x20, mask=0x7F, min=1, max=31, offset=0, shift=0
+          "off" → clear enable bit (0x20) only, preserve value bits
+          "N"   → clear bits 0-6, set 0x20 | N
+        Bit 7 of byte 0 = triggerRain enable (mask=0x7F < 0x80 → never touched).
+        Format: "off 15 off off off" (5 space-separated: off or 1-31 m/s)
+        """
+        state = self.data.devices.get(device_code.hex + "00")
+        if state is None:
+            return
+        parts = (value.split() + ["off"] * 5)[:5]
+        for c, v in enumerate(parts):
+            if v.lower() == "off":
+                self._raw_update_reg_byte(state, 6, c, 0x00, 0x20)
+            else:
+                iv = max(1, min(31, int(float(v))))
+                self._raw_update_reg_byte(state, 6, c, 0x20 | iv, 0x7F)
+        self._flush_weather_config(state)
+
+    async def async_set_trigger_temperature(
+        self, device_code: DuoFernId, value: str
+    ) -> None:
+        """Set temperature trigger thresholds for 5 channels.
+
+        From 30_DUOFERN.pm %wCmds triggerTemperature:
+          reg=6, byte=5..9, size=1, count=5
+          enable=0x80, mask=0xFF, min=-40, max=80, offset=40, shift=0
+          "off" → clear enable bit (0x80) only
+          "N"   → clear all bits, set 0x80 | (N + 40) in bits 0-6
+        Format: "off -5 22 off off" (5 space-separated: off or -40..80°C)
+        """
+        state = self.data.devices.get(device_code.hex + "00")
+        if state is None:
+            return
+        parts = (value.split() + ["off"] * 5)[:5]
+        for c, v in enumerate(parts):
+            if v.lower() == "off":
+                self._raw_update_reg_byte(state, 6, 5 + c, 0x00, 0x80)
+            else:
+                iv = max(-40, min(80, int(float(v))))
+                self._raw_update_reg_byte(
+                    state, 6, 5 + c, 0x80 | ((iv + 40) & 0x7F), 0xFF
+                )
+        self._flush_weather_config(state)
+
+    async def async_set_trigger_dawn(self, device_code: DuoFernId, value: str) -> None:
+        """Set dawn trigger thresholds for 5 channels.
+
+        From 30_DUOFERN.pm %wCmds triggerDawn:
+          reg=0..2, size=4, count=5, pad=int(c/2)*2
+          enable=0x10000000 (bit 28), mask=0x1000007F
+          min=1, max=100, offset=-1, shift=0
+          value stored = value - 1 in bits 0-6 + bit 28 enable
+
+        Register/byte positions per channel (c): shared 32-bit word with triggerDusk.
+          c=0 → reg0 byte0 | c=1 → reg0 byte4 | c=2 → reg1 byte0
+          c=3 → reg1 byte4 | c=4 → reg2 byte0
+
+        Format: "off 50 off off off" (off or 1-100)
+        """
+        state = self.data.devices.get(device_code.hex + "00")
+        if state is None:
+            return
+        _pos = [(0, 0), (0, 4), (1, 0), (1, 4), (2, 0)]
+        parts = (value.split() + ["off"] * 5)[:5]
+        for c, v in enumerate(parts):
+            reg, byte = _pos[c]
+            if v.lower() == "off":
+                self._raw_update_reg_word32(state, reg, byte, 0x00, 0x10000000)
+            else:
+                iv = max(1, min(100, int(float(v))))
+                new_bits = 0x10000000 | ((iv - 1) & 0x7F)
+                self._raw_update_reg_word32(state, reg, byte, new_bits, 0x1000007F)
+        self._flush_weather_config(state)
+
+    async def async_set_trigger_dusk(self, device_code: DuoFernId, value: str) -> None:
+        """Set dusk trigger thresholds for 5 channels.
+
+        From 30_DUOFERN.pm %wCmds triggerDusk:
+          reg=0..2, size=4, count=5, pad=int(c/2)*2
+          enable=0x20000000 (bit 29), mask=0x201FC000
+          min=1, max=100, offset=-1, shift=14
+          value stored = (value - 1) << 14 in bits 14-20 + bit 29 enable
+
+        Shares the same 32-bit word per channel with triggerDawn (different bits).
+        Format: "off 50 off off off" (off or 1-100)
+        """
+        state = self.data.devices.get(device_code.hex + "00")
+        if state is None:
+            return
+        _pos = [(0, 0), (0, 4), (1, 0), (1, 4), (2, 0)]
+        parts = (value.split() + ["off"] * 5)[:5]
+        for c, v in enumerate(parts):
+            reg, byte = _pos[c]
+            if v.lower() == "off":
+                self._raw_update_reg_word32(state, reg, byte, 0x00, 0x20000000)
+            else:
+                iv = max(1, min(100, int(float(v))))
+                new_bits = 0x20000000 | (((iv - 1) & 0x7F) << 14)
+                self._raw_update_reg_word32(state, reg, byte, new_bits, 0x201FC000)
+        self._flush_weather_config(state)
+
+    async def async_set_trigger_sun(self, device_code: DuoFernId, value: str) -> None:
+        """Set sun trigger values for 5 channels.
+
+        From 30_DUOFERN.pm %wCmds triggerSun + FHEM wCmds set handler:
+          reg=3..5, byte=0 (pad=c), size=4, count=5
+          enable=0x20000000 (bit 29), mask=0x3FFFFFC0
+
+        Encoding (from FHEM set handler):
+          encoded = (kLux-1)<<12 | (sunMin-1)<<19 | (shadowMin-1)<<24
+          if temp: encoded |= (temp+5)<<7 | 0x40
+          new_bits = 0x20000000 | (encoded & 0x3FFFFFC0)
+
+        Channel positions: byte_offset = 30 + 5*c, reg = offset//10, byte = offset%10
+          c=0→reg3 b0 | c=1→reg3 b5 | c=2→reg4 b0 | c=3→reg4 b5 | c=4→reg5 b0
+
+        Format: "off 50:5:5 off off off"
+          Per value: "off" or "kLux:sunMin:shadowMin[:minTemp]"
+            kLux: 1-100 (brightness threshold in kLux)
+            sunMin: 1-30 (minutes of sun to trigger)
+            shadowMin: 1-30 (minutes of shadow to trigger)
+            minTemp: -5 to 26 (optional minimum temperature °C)
+        """
+        state = self.data.devices.get(device_code.hex + "00")
+        if state is None:
+            return
+        parts = (value.split() + ["off"] * 5)[:5]
+        for c, v in enumerate(parts):
+            byte_offset = 30 + 5 * c
+            reg, byte = byte_offset // 10, byte_offset % 10
+            if v.lower() == "off":
+                self._raw_update_reg_word32(state, reg, byte, 0x00, 0x20000000)
+            else:
+                tokens = v.split(":")
+                if len(tokens) < 3:
+                    _LOGGER.warning(
+                        "triggerSun channel %d: expected kLux:sunMin:shadowMin[:temp], got %r",
+                        c,
+                        v,
+                    )
+                    continue
+                try:
+                    klux = max(1, min(100, int(tokens[0])))
+                    sun_m = max(1, min(30, int(tokens[1])))
+                    shd_m = max(1, min(30, int(tokens[2])))
+                except ValueError:
+                    _LOGGER.warning("triggerSun channel %d: non-integer in %r", c, v)
+                    continue
+                # Encoding from 30_DUOFERN.pm FHEM set handler
+                enc = ((klux - 1) << 12) | ((sun_m - 1) << 19) | ((shd_m - 1) << 24)
+                if len(tokens) > 3:
+                    try:
+                        temp = max(-5, min(26, int(tokens[3])))
+                        enc |= ((temp + 5) << 7) | 0x40
+                    except ValueError:
+                        pass
+                new_bits = 0x20000000 | (enc & 0x3FFFFFC0)
+                self._raw_update_reg_word32(state, reg, byte, new_bits, 0x3FFFFFC0)
+        self._flush_weather_config(state)
+
+    async def async_set_trigger_sun_direction(
+        self, device_code: DuoFernId, value: str
+    ) -> None:
+        """Set sun direction trigger for 5 channels.
+
+        From 30_DUOFERN.pm %wCmds triggerSunDirection:
+          reg=3..5, byte=1 (pad=c), size=4, count=5
+          enable=0x00, mask=0x000000FF, shift=0
+        Stored in the lowest byte (byte_pos+3) of the 4-byte word.
+
+        Encoding (from FHEM set handler):
+          angle_idx = int((startAngle + 11.25) / 22.5)
+          width_idx = int((width + 22.5) / 45)
+          if (angle_idx + width_idx*2) > 15: angle_idx = 15 - width_idx*2
+          encoded_byte = (angle_idx + width_idx) | (width_idx << 4) | 0x80
+
+        Channel positions: byte_offset = 31 + 5*c (base_byte=1)
+          c=0→reg3 b1 | c=1→reg3 b6 | c=2→reg4 b1 | c=3→reg4 b6 | c=4→reg5 b1
+
+        Format: "off 90:90 off off off"
+          Per value: "off" or "startAngle:width"
+            startAngle: 0..292.5 (steps of 22.5°)
+            width: 45..180 (steps of 45°)
+        """
+        state = self.data.devices.get(device_code.hex + "00")
+        if state is None:
+            return
+        parts = (value.split() + ["off"] * 5)[:5]
+        for c, v in enumerate(parts):
+            byte_offset = 31 + 5 * c
+            reg, byte = byte_offset // 10, byte_offset % 10
+            if v.lower() == "off":
+                # 0x01: disables decode (width_idx=0 → (0x01>>4)&0x07=0 → off)
+                self._raw_update_reg_word32(state, reg, byte, 0x01, 0xFF)
+            else:
+                tokens = v.split(":")
+                if len(tokens) < 2:
+                    _LOGGER.warning(
+                        "triggerSunDirection channel %d: expected startAngle:width, got %r",
+                        c,
+                        v,
+                    )
+                    continue
+                try:
+                    angle = float(tokens[0])
+                    width = float(tokens[1])
+                except ValueError:
+                    _LOGGER.warning(
+                        "triggerSunDirection channel %d: non-numeric in %r", c, v
+                    )
+                    continue
+                angle_idx = int((angle + 11.25) / 22.5)
+                width_idx = int((width + 22.5) / 45)
+                if (angle_idx + width_idx * 2) > 15:
+                    angle_idx = 15 - width_idx * 2
+                enc_byte = ((angle_idx + width_idx) | (width_idx << 4) | 0x80) & 0xFF
+                self._raw_update_reg_word32(state, reg, byte, enc_byte, 0xFF)
+        self._flush_weather_config(state)
+
+    async def async_set_trigger_sun_height(
+        self, device_code: DuoFernId, value: str
+    ) -> None:
+        """Set sun height trigger for 5 channels.
+
+        From 30_DUOFERN.pm %wCmds triggerSunHeight:
+          reg=3..5, byte=1 (pad=c), size=4, count=5
+          enable=0x00, mask=0x00001F80, shift=0
+        Stored in bits 7-12 of the 4-byte word (spanning word_byte2 and word_byte3).
+
+        Encoding (from FHEM set handler):
+          from_idx = int((fromAngle + 6.5) / 13)
+          width_idx = int((widthAngle + 13) / 26)
+          if (from_idx + width_idx*2) > 7: from_idx = 7 - width_idx*2
+          raw = (from_idx + width_idx) << 8 | width_idx << 11 | 0x80
+          → stored with mask 0x1F80 (bits 7-12 of the 32-bit word)
+
+        Channel positions: byte_offset = 31 + 5*c (same as triggerSunDirection)
+        Shares the same 32-bit word at byte_pos+1 as triggerSunDirection but
+        different bit fields (mask=0x1F80 vs 0xFF → no overlap).
+
+        Format: "off 13:26 off off off"
+          Per value: "off" or "fromAngle:widthAngle"
+            fromAngle: 0..65 (steps of 13°, e.g. 0,13,26,39,52,65)
+            widthAngle: 26 or 52 (1 or 2 × 26°)
+        """
+        state = self.data.devices.get(device_code.hex + "00")
+        if state is None:
+            return
+        parts = (value.split() + ["off"] * 5)[:5]
+        for c, v in enumerate(parts):
+            byte_offset = 31 + 5 * c
+            reg, byte = byte_offset // 10, byte_offset % 10
+            if v.lower() == "off":
+                # 0x0100: decode reads word_byte2; 0x0100>>3=0 → width_idx=0 → off
+                self._raw_update_reg_word32(state, reg, byte, 0x0100, 0x1F80)
+            else:
+                tokens = v.split(":")
+                if len(tokens) < 2:
+                    _LOGGER.warning(
+                        "triggerSunHeight channel %d: expected fromAngle:widthAngle, got %r",
+                        c,
+                        v,
+                    )
+                    continue
+                try:
+                    from_angle = float(tokens[0])
+                    width_angle = float(tokens[1])
+                except ValueError:
+                    _LOGGER.warning(
+                        "triggerSunHeight channel %d: non-numeric in %r", c, v
+                    )
+                    continue
+                from_idx = int((from_angle + 6.5) / 13)
+                width_idx = int((width_angle + 13) / 26)
+                if (from_idx + width_idx * 2) > 7:
+                    from_idx = 7 - width_idx * 2
+                # raw bits 7-12 of 32-bit word:
+                #   bit7 (0x80) in word_byte3 → decoded as sunDir interop
+                #   bits8-12 in word_byte2 → decoded by tSunHeight
+                raw = ((from_idx + width_idx) << 8) | (width_idx << 11) | 0x80
+                self._raw_update_reg_word32(state, reg, byte, raw & 0x1F80, 0x1F80)
+        self._flush_weather_config(state)
 
     # ------------------------------------------------------------------
     # Diagnostics

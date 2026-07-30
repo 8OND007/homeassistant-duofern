@@ -1261,6 +1261,32 @@ class DuoFernDecoder:
         return reg_index, reg_data
 
     @staticmethod
+    def parse_time_frame(data: bytes | bytearray | str) -> dict[str, str]:
+        """Parse Umweltsensor Zeit frame (0F..1020...) into date/time strings.
+
+        From 30_DUOFERN.pm: #Umweltsensor/Handzentrale Zeit
+          $msg =~ m/0F..1020.{36}/
+          $year   = substr($msg, 12, 2)  → frame byte 6
+          $month  = substr($msg, 14, 2)  → frame byte 7
+          # byte 8 = weekday (skipped in FHEM)
+          $day    = substr($msg, 18, 2)  → frame byte 9
+          $hour   = substr($msg, 20, 2)  → frame byte 10
+          $minute = substr($msg, 22, 2)  → frame byte 11
+          $second = substr($msg, 24, 2)  → frame byte 12
+
+        Values are BCD-encoded: the device stores decimal digits as their hex
+        representation (year 2026 → byte 0x26). FHEM reads them as 2-char hex
+        strings and concatenates directly, so we format with {:02X} to match:
+          date → "20{year:02X}-{month:02X}-{day:02X}"   e.g. "2026-07-30"
+          time → "{hour:02X}:{minute:02X}:{second:02X}" e.g. "15:30:00"
+        """
+        frame = DuoFernDecoder._ensure_bytes(data)
+        return {
+            "date": f"20{frame[6]:02X}-{frame[7]:02X}-{frame[9]:02X}",
+            "time": f"{frame[10]:02X}:{frame[11]:02X}:{frame[12]:02X}",
+        }
+
+    @staticmethod
     def decode_weather_config(registers: dict[int, str]) -> dict[str, object]:
         """Decode all Umweltsensor config register pages into named readings.
 
