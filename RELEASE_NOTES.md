@@ -58,3 +58,7 @@ The Umweltsensor's actor sub-channel behaves like a Rohrmotor/Troll cover, so it
 - **Automation switches:** Manual Mode, Time Automatic, Dawn Automatic, Dusk Automatic, Sun Automatic, Sun Mode, Ventilating Mode
 
 These use the standard format-23a command set (`async_set_sun_position`, `async_set_ventilating_position`, `async_set_automation`), identical to how other covers handle the same commands.
+
+### Window/door contact sensor
+
+The Fenster-/Türkontakt now reports tilted as expected.

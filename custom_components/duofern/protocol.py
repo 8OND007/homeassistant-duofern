@@ -1215,11 +1215,26 @@ class DuoFernDecoder:
         if device_code.device_type in (0x61, 0x70, 0x71):
             chan_hex = "01"
 
+        event_name = spec["name"]
+        state = spec.get("state")
+
+        # FHEM 30_DUOFERN.pm (line ~1349):
+        #   if($code =~ m/^(AC)..../ && substr($msg, 14, 2) eq "FE") {
+        #       readingsSingleUpdate($hash, "state", "tilted", 1);
+        #       $state = "tilted";
+        #   }
+        # substr($msg, 14, 2) is frame byte 7 (char_index / 2 = 7).
+        # For the AC Fenster-Tuer-Kontakt this overrides opened/closed
+        # whenever byte 7 == 0xFE, regardless of the 0723/0724 msg id.
+        if device_code.device_type == 0xAC and frame[7] == 0xFE:
+            event_name = "tilted"
+            state = "tilted"
+
         return SensorEvent(
             device_code=device_code.hex,
             channel=chan_hex,
-            event_name=spec["name"],
-            state=spec.get("state"),
+            event_name=event_name,
+            state=state,
             raw_msg_id=msg_id,
         )
 

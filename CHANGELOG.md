@@ -1,6 +1,6 @@
 # Changelog
 
-## [v2.3.1] — 2026-07-30
+## [v2.3.1] — 2026-07-31
 
 - **Device date/time sensors** — two new diagnostic sensors, "Device Date" and "Device Time", are populated on the Umweltsensor's "00" sub-channel when the **Get Time** button is pressed. Decoded from the BCD-encoded Zeit response frame (`0F..1020…`), translated from `30_DUOFERN.pm`.
 
@@ -13,6 +13,8 @@
 - **Batched register updates** — new `_raw_update_reg_byte`/`_raw_update_reg_word32` + `_flush_weather_config` helpers let the 5-channel trigger setters update all bytes in memory first and fire a single coordinator/HA notification, instead of one per channel.
 
 - **Umweltsensor actor sub-channel ("01") gains cover-style entities** — Sun Position and Ventilating Position numbers, plus Manual Mode, Time Automatic, Dawn Automatic, Dusk Automatic, Sun Automatic, Sun Mode, and Ventilating Mode automation switches, since the actor sub-channel behaves like a Rohrmotor/Troll cover.
+
+- **Window/door contact sensor** — tilted position now working.
 
 ## [v2.3.0] — 2026-07-29
 
