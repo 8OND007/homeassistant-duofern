@@ -1,5 +1,19 @@
 # Changelog
 
+## [v2.3.1] — 2026-07-30
+
+- **Device date/time sensors** — two new diagnostic sensors, "Device Date" and "Device Time", are populated on the Umweltsensor's "00" sub-channel when the **Get Time** button is pressed. Decoded from the BCD-encoded Zeit response frame (`0F..1020…`), translated from `30_DUOFERN.pm`.
+
+- **Full config register writes for latitude/longitude/timezone/DCF/rain trigger** — these previously used a stub (`async_set_umweltsensor_number`) that only logged the value, or stored plain reading strings that were never encoded into the registers `writeConfig` actually sends. They now write directly into the correct register bits (`weather_config_registers`), matching the `%wCmds` bit layout in `30_DUOFERN.pm`.
+
+- **`writeConfig` rewritten** — now reads from the per-channel `weather_config_registers` store on the "00" sub-channel (previously read stale `.reg0`–`.reg7` readings from the bare device code), with per-register length validation before sending.
+
+- **7 new trigger-threshold text entities** — Wind, Temperature, Dawn, Dusk, Sun, Sun Direction, and Sun Height Triggers are now exposed as space-separated 5-channel text fields on channel "00", matching FHEM's native input format (e.g. `off 15 off off off`). Values are encoded straight into the config registers and pushed to the device via the writeConfig button.
+
+- **Batched register updates** — new `_raw_update_reg_byte`/`_raw_update_reg_word32` + `_flush_weather_config` helpers let the 5-channel trigger setters update all bytes in memory first and fire a single coordinator/HA notification, instead of one per channel.
+
+- **Umweltsensor actor sub-channel ("01") gains cover-style entities** — Sun Position and Ventilating Position numbers, plus Manual Mode, Time Automatic, Dawn Automatic, Dusk Automatic, Sun Automatic, Sun Mode, and Ventilating Mode automation switches, since the actor sub-channel behaves like a Rohrmotor/Troll cover.
+
 ## [v2.3.0] — 2026-07-29
 
 - **Rain binary sensor for Umweltsensor (0x69)** — a new `moisture` binary sensor ("Rain Detected") is created on the weather station sub-channel ("00"). It updates from the `isRaining` bit decoded in every ~1-minute weather frame and reacts instantly to `startRain`/`endRain` coordinator events. Last known state is restored across HA restarts.

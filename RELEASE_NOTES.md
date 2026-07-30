@@ -1,63 +1,60 @@
-# Release v2.3.0
+# Release v2.3.1
 
-## Umweltsensor (0x69) — Full Config & Actor Support
+## Umweltsensor (0x69) — Device Clock, Full Register Writes & Trigger Configuration
 
-This release completes the Umweltsensor integration: config registers are now decoded from `getConfig` responses, a rain binary sensor is added, and the actor sub-channel gets its own set of entities. It also fixes misrouted rain events from v2.2.9.
+This release rounds out the Umweltsensor config story started in v2.3.0: latitude/longitude/timezone/DCF/rain-trigger are now written into the real device registers instead of a stub, all 7 multi-channel trigger thresholds (wind, temperature, dawn, dusk, sun, sun direction, sun height) get dedicated text entities, the device's internal clock can be read back, and the actor sub-channel ("01") gets a full set of automation switches and position numbers matching a Rohrmotor/Troll cover.
 
-### Rain Binary Sensor
+### Device Date & Time Sensors
 
-A new **Rain Detected** binary sensor (`device_class: moisture`) is now created for the Umweltsensor's weather station sub-channel ("00"). It has two update paths:
+Pressing the **Get Time** button now populates two new diagnostic sensors on the weather station sub-channel ("00"):
 
-- **Coordinator push** — reads `isRaining` from the weather frame (bit 15 of the temperature word, decoded every ~1 minute).
-- **Event bus** — reacts instantly to `startRain` / `endRain` events fired by the coordinator between regular weather frames.
+| Entity | Source |
+|--------|--------|
+| Device Date | `date` reading, e.g. `2026-07-30` |
+| Device Time | `time` reading, e.g. `15:30:00` |
 
-The last known state is restored across HA restarts via `RestoreEntity`.
+Decoded from the Umweltsensor's Zeit response frame (`0F..1020…`), translated from `30_DUOFERN.pm`. The device encodes each field as BCD (e.g. byte `0x26` means "26", not 38), so the parser formats each byte as a 2-digit hex string rather than a decimal value.
 
-### Weather Config Register Decode
+### Full Config Register Writes (Latitude / Longitude / Timezone / DCF / Rain Trigger)
 
-The coordinator now handles `getConfig` responses from the Umweltsensor (frame pattern `0FFF1B2[1-8]`). The device sends 8 separate register pages; each page is stored and the full config is re-decoded after every received page (missing pages default to all-zero, same as FHEM).
+Previously, latitude, longitude, and timezone went through a stub (`async_set_umweltsensor_number`) that only logged the value, and DCF / interval / rain-trigger were stored as plain reading strings that were never actually encoded into the registers `writeConfig` sends to the device.
 
-Decoded readings land on the "00" sub-channel and immediately populate the existing config entities:
+All five now write directly into the correct bits of the device's config register pages (`weather_config_registers`, keyed by register index 0–7), matching the `%wCmds` bit layout from `30_DUOFERN.pm`:
 
-| Reading | Source | Entity |
-|---------|--------|--------|
-| `interval` | reg7 byte 0 | Transmit Interval select |
-| `DCF` | reg7 byte 1 bit 1 | DCF Time Sync switch |
-| `timezone` | reg7 byte 4 | Timezone number |
-| `latitude` | reg7 byte 5 (signed) | Latitude number |
-| `longitude` | reg7 byte 7 (signed) | Longitude number |
-| `triggerRain` | reg6 byte 0 bit 7 | Trigger Rain switch |
-| `triggerWind` | reg6 bytes 0–4 | — (5 channels) |
-| `triggerTemperature` | reg6 bytes 5–9 | — (5 channels) |
-| `triggerDawn` / `triggerDusk` | regs 0–2 | — (5 channels each) |
-| `triggerSun` / `triggerSunDirection` / `triggerSunHeight` | regs 3–5 | — (5 channels each) |
+| Setting | Register | Byte | Encoding |
+|---------|----------|------|----------|
+| Latitude | reg7 | byte 5 | unsigned 0–90 |
+| Longitude | reg7 | byte 7 | signed −90–90, stored as `value + 256` when negative |
+| Timezone | reg7 | byte 4 | unsigned 0–23 |
+| DCF | reg7 | byte 1 | bit 1 |
+| Interval | reg7 | byte 0 | bit 7 = enabled, bits 6–0 = minutes (or clear bit 7 for "off") |
+| Trigger Rain | reg6 | byte 0 | bit 7 |
 
-Translated faithfully from `DUOFERN_DecodeWeatherSensorConfig()` in `30_DUOFERN.pm`.
+`writeConfig` was rewritten to read from this per-channel register store (on the "00" sub-channel) instead of `.reg0`–`.reg7` readings on the bare device code, and now validates each register's length before sending.
 
-### Actor Sub-Channel ("01") Entities
+### 7 New Trigger Threshold Text Entities
 
-The Umweltsensor's actor sub-channel now gets its own entities matching `%setsUmweltsensor01` from `30_DUOFERN.pm`:
+The remaining multi-channel trigger fields from `%wCmds` are now exposed as text entities on channel "00", using the same space-separated 5-value format FHEM itself expects:
 
-| Entity | Type | Description |
-|--------|------|-------------|
-| Running Time | Number (0–100 s) | Motor running time |
-| Wind Direction | Select (up/down) | Movement direction on wind trigger |
-| Rain Direction | Select (up/down) | Movement direction on rain trigger |
-| Wind Automatic | Switch | Enable wind-triggered automation |
-| Rain Automatic | Switch | Enable rain-triggered automation |
-| Wind Mode | Switch | Wind mode flag |
-| Rain Mode | Switch | Rain mode flag |
-| Reversal | Switch | Reversal flag |
+| Entity | Format | Range |
+|--------|--------|-------|
+| Wind Triggers | `off 15 off off off` | 1–31 m/s per channel |
+| Temperature Triggers | `off -5 22 off off` | −40–80 °C per channel |
+| Dawn Triggers | `off 50 off off off` | 1–100 (brightness) per channel |
+| Dusk Triggers | `off 50 off off off` | 1–100 (brightness) per channel |
+| Sun Triggers | `off 50:5:5 off off off` | `kLux:sunMin:shadowMin[:minTemp]` |
+| Sun Direction Triggers | `off 90:90 off off off` | `startAngle:width` (22.5°/45° steps) |
+| Sun Height Triggers | `off 13:26 off off off` | `fromAngle:widthAngle` (13°/26° steps) |
 
-### Channel Separation (channel_filter)
+Each entity encodes its value straight into the corresponding config register bits; nothing is sent to the device until the **writeConfig** button is pressed.
 
-All entity descriptions for the Umweltsensor now carry an explicit `channel_filter` that restricts creation to the correct sub-channel:
+Multi-channel updates are now batched — new `_raw_update_reg_byte` / `_raw_update_reg_word32` helpers write all 5 channels into memory first, then `_flush_weather_config()` re-decodes and notifies Home Assistant exactly once per call instead of once per channel.
 
-- Config entities (interval, DCF, triggerRain, latitude, longitude, timezone) → channel "00" only
-- Actor entities (running time, wind/rain direction, automation flags) → channel "01" only
+### Actor Sub-Channel ("01") — Position Numbers & Automation Switches
 
-This eliminates duplicate entities that previously appeared on both sub-channels.
+The Umweltsensor's actor sub-channel behaves like a Rohrmotor/Troll cover, so it now gets the matching entity set:
 
-### Bug Fix: Rain Event Channel
+- **Numbers:** Sun Position, Ventilating Position (0–100 %)
+- **Automation switches:** Manual Mode, Time Automatic, Dawn Automatic, Dusk Automatic, Sun Automatic, Sun Mode, Ventilating Mode
 
-The `startRain` and `endRain` events fired by `_handle_weather_data()` were emitting `device_code = bare_hex` with `channel = "01"`. They now emit `device_code = bare_hex + "00"` with `channel = "00"`, so the rain binary sensor (which uses the 8-character channel key as its identifier) matches correctly.
+These use the standard format-23a command set (`async_set_sun_position`, `async_set_ventilating_position`, `async_set_automation`), identical to how other covers handle the same commands.
