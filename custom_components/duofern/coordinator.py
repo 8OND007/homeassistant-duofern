@@ -2995,8 +2995,16 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
             byte_offset = 31 + 5 * c
             reg, byte = byte_offset // 10, byte_offset % 10
             if v.lower() == "off":
-                # 0x01: disables decode (width_idx=0 → (0x01>>4)&0x07=0 → off)
-                self._raw_update_reg_word32(state, reg, byte, 0x01, 0xFF)
+                # FHEM off-case: read current sunHeight state for this channel.
+                # If sunHeight IS active (word_byte2 bits 3-4 non-zero), set bit 7
+                # of word_byte3 to 1 (→ 0x81) to signal the device that sun
+                # triggering is still relevant for this channel. If sunHeight is
+                # also inactive, clear bit 7 (→ 0x01).
+                # From 30_DUOFERN.pm: @tSunHeight unpack 'x66A2...', check & 0x18
+                reg_hex = state.weather_config_registers.get(reg, "0" * 20)
+                word_byte2 = bytearray.fromhex(reg_hex)[byte + 2]
+                off_val = 0x81 if (word_byte2 & 0x18) else 0x01
+                self._raw_update_reg_word32(state, reg, byte, off_val, 0xFF)
             else:
                 tokens = v.split(":")
                 if len(tokens) < 2:
@@ -3056,8 +3064,16 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
             byte_offset = 31 + 5 * c
             reg, byte = byte_offset // 10, byte_offset % 10
             if v.lower() == "off":
-                # 0x0100: decode reads word_byte2; 0x0100>>3=0 → width_idx=0 → off
-                self._raw_update_reg_word32(state, reg, byte, 0x0100, 0x1F80)
+                # FHEM off-case: read current sunDir state for this channel.
+                # If sunDir IS active (word_byte3 bits 4-6 non-zero), set bit 7
+                # of word_byte3 to 1 (→ 0x0180) to signal the device that sun
+                # triggering is still relevant for this channel. If sunDir is
+                # also inactive, clear bit 7 (→ 0x0100).
+                # From 30_DUOFERN.pm: @tSunDir unpack 'x68A2...', check & 0x70
+                reg_hex = state.weather_config_registers.get(reg, "0" * 20)
+                word_byte3 = bytearray.fromhex(reg_hex)[byte + 3]
+                off_val = 0x0180 if (word_byte3 & 0x70) else 0x0100
+                self._raw_update_reg_word32(state, reg, byte, off_val, 0x1F80)
             else:
                 tokens = v.split(":")
                 if len(tokens) < 2:
