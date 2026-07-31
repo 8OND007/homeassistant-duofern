@@ -112,10 +112,17 @@ SENSOR_DESCRIPTIONS: tuple[DuoFernSensorDescription, ...] = (
         native_unit_of_measurement="°",
         icon="mdi:weather-sunny",
     ),
-    # Device internal clock — populated when the getTime button is pressed.
-    # Unavailable until the first getTime response arrives (reading_key absent
-    # from readings). EntityCategory.DIAGNOSTIC keeps them off the dashboard.
-    # From 30_DUOFERN.pm: readingsBulkUpdate "date"/"time" on 0F..1020 frame.
+)
+
+
+# Device internal clock — populated when the getTime button is pressed.
+# Separate from SENSOR_DESCRIPTIONS because DuoFernSensor.native_value forces
+# float(val) for all readings (brightness, temperature, etc. are numeric).
+# "date"/"time" are strings ("2026-07-31", "06:32:35") — float() on them
+# raises ValueError, is caught, and returns None, so the entity always shows
+# "Unbekannt" even though the reading correctly arrived and was stored.
+# DuoFernStringSensor below returns the raw string instead.
+DEVICE_DATETIME_DESCRIPTIONS: tuple[DuoFernSensorDescription, ...] = (
     DuoFernSensorDescription(
         key="device_date",
         reading_key="date",
@@ -172,6 +179,26 @@ async def async_setup_entry(
                 )
                 _LOGGER.debug(
                     "Adding sensor entity %s for device %s",
+                    description.key,
+                    hex_code,
+                )
+
+        # Device date/time — Umweltsensor channel "00" only. String-valued
+        # readings ("date"/"time"), so they use DuoFernStringSensor instead
+        # of DuoFernSensor (which forces float() and would always show
+        # "Unbekannt" for these).
+        if dev_code.device_type == 0x69 and device_state.channel == "00":
+            for description in DEVICE_DATETIME_DESCRIPTIONS:
+                entities.append(
+                    DuoFernStringSensor(
+                        coordinator=coordinator,
+                        device_state=device_state,
+                        hex_code=hex_code,
+                        description=description,
+                    )
+                )
+                _LOGGER.debug(
+                    "Adding string sensor entity %s for device %s",
                     description.key,
                     hex_code,
                 )
@@ -359,6 +386,81 @@ class DuoFernSensor(CoordinatorEntity[DuoFernCoordinator], SensorEntity):
                 device_reg.async_update_device(
                     device.id, sw_version=state.status.version
                 )
+        self.async_write_ha_state()
+
+
+# ---------------------------------------------------------------------------
+# String sensor — for readings that are strings, not numbers (date/time)
+# ---------------------------------------------------------------------------
+
+
+class DuoFernStringSensor(CoordinatorEntity[DuoFernCoordinator], SensorEntity):
+    """A single string-valued reading (e.g. device date/time).
+
+    Identical to DuoFernSensor except native_value returns the raw string
+    instead of forcing float(val). Umweltsensor "date"/"time" readings are
+    strings like "2026-07-31" / "06:32:35" — float() on them raises
+    ValueError, which DuoFernSensor catches and turns into None, so the
+    entity always shows "Unbekannt" even though the reading arrived correctly.
+    """
+
+    entity_description: DuoFernSensorDescription
+    _attr_has_entity_name = True
+
+    def __init__(
+        self,
+        coordinator: DuoFernCoordinator,
+        device_state: DuoFernDeviceState,
+        hex_code: str,
+        description: DuoFernSensorDescription,
+    ) -> None:
+        super().__init__(coordinator)
+        self._hex_code = hex_code
+        self._device_code = device_state.device_code
+        self.entity_description = description
+        self._attr_unique_id = f"{DOMAIN}_{hex_code}_{description.key}"
+
+    @property
+    def _device_state(self) -> DuoFernDeviceState | None:
+        if self.coordinator.data is None:
+            return None
+        return self.coordinator.data.devices.get(self._hex_code)
+
+    @property
+    def available(self) -> bool:
+        state = self._device_state
+        if state is None:
+            return False
+        return (
+            state.available
+            and self.coordinator.last_update_success
+            and self.entity_description.reading_key in state.status.readings
+        )
+
+    @property
+    def native_value(self) -> str | None:
+        state = self._device_state
+        if state is None:
+            return None
+        val = state.status.readings.get(self.entity_description.reading_key)
+        return str(val) if val is not None else None
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        data = self.coordinator.data
+        state = data.devices.get(self._hex_code) if data else None
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._hex_code)},
+            name=(f"DuoFern {self._device_code.device_type_name} ({self._hex_code})"),
+            manufacturer="Rademacher",
+            model=self._device_code.device_type_name,
+            serial_number=self._hex_code,
+            sw_version=state.status.version if state else None,
+            via_device=(DOMAIN, self.coordinator.system_code.hex),
+        )
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
         self.async_write_ha_state()
 
 
