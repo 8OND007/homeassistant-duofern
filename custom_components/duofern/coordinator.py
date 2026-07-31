@@ -2548,6 +2548,19 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
             except Exception:
                 _LOGGER.warning("writeConfig: could not send reg%d frame", x)
 
+        # Immediately re-read the config from the device after writing.
+        # The device only ever ACKs the raw command frame (810003CC) — that
+        # confirms the frame was received, not that the value was actually
+        # applied/stored as intended. Triggering a getConfig here means every
+        # writeConfig always ends with a fresh read, so state.weather_config_registers
+        # (and therefore every CONFIG entity) reflects what the device actually
+        # has, not just what we last told it to store.
+        _LOGGER.debug(
+            "writeConfig: all 8 registers sent for %s — requesting readback",
+            device_code.hex,
+        )
+        await self.async_get_weather_config(device_code)
+
     # ------------------------------------------------------------------
     # Umweltsensor config register helpers (wCmds encoding, 30_DUOFERN.pm)
     # ------------------------------------------------------------------
@@ -3022,7 +3035,12 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
                         "triggerSunDirection channel %d: non-numeric in %r", c, v
                     )
                     continue
-                angle_idx = int((angle + 11.25) / 22.5)
+                # Empirical -45° correction, symmetric to the +45° applied in
+                # decode_weather_config() (see comment there for the 3 real-device
+                # data points that confirmed this). Applied here BEFORE the
+                # original FHEM angle_idx formula so a value the user sets here
+                # round-trips correctly through a later getConfig read.
+                angle_idx = int((angle - 45 + 11.25) / 22.5)
                 width_idx = int((width + 22.5) / 45)
                 if (angle_idx + width_idx * 2) > 15:
                     angle_idx = 15 - width_idx * 2

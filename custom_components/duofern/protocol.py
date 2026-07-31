@@ -1233,8 +1233,8 @@ class DuoFernDecoder:
         return SensorEvent(
             device_code=device_code.hex,
             channel=chan_hex,
-            event_name=event_name,
-            state=state,
+            event_name=spec["name"],
+            state=spec.get("state"),
             raw_msg_id=msg_id,
         )
 
@@ -1420,10 +1420,23 @@ class DuoFernDecoder:
                 sun_vals.append("off")
 
             # tSunDir: enabled when bits 4-6 of byte non-zero
+            #
+            # FHEM's source formula is angle = (center - width) * 22.5, but
+            # this was empirically found to be off by a constant +45° against
+            # a real Umweltsensor device (confirmed with 3 independent data
+            # points from real getConfig reads vs. the value set in Homepilot
+            # at that exact moment):
+            #   Homepilot 45.0°  <-> raw byte gave 0.0°   (FHEM formula) / 45.0° (corrected)
+            #   Homepilot 22.5°  <-> raw byte gave -22.5° (FHEM formula) / 22.5° (corrected)
+            #   Homepilot 67.5°  <-> raw byte gave 22.5°  (FHEM formula) / 67.5° (corrected)
+            # All 3 were captured with width=90° (width_idx=2); the correction
+            # has not been confirmed at other width settings, so if it turns
+            # out to be width-dependent rather than a flat +45°, this may
+            # need revisiting.
             if (t_dir >> 4) & 0x07:
                 center = t_dir & 0x0F
                 width = (t_dir >> 4) & 0x07
-                dir_vals.append(f"{(center - width) * 22.5}:{width * 45}")
+                dir_vals.append(f"{(center - width) * 22.5 + 45}:{width * 45}")
             else:
                 dir_vals.append("off")
 
