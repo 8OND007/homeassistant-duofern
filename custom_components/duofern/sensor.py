@@ -93,6 +93,13 @@ SENSOR_DESCRIPTIONS: tuple[DuoFernSensorDescription, ...] = (
         device_class=SensorDeviceClass.WIND_SPEED,
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement="m/s",
+        # device_class=WIND_SPEED makes HA offer automatic unit conversion
+        # (m/s / km/h / mph / kn); without this, the DISPLAYED unit follows
+        # HA's system-wide unit preference, not native_unit_of_measurement,
+        # so users would need to manually override it per entity (as Gerald
+        # had to). suggested_unit_of_measurement sets m/s as the default
+        # display unit for newly-added entities.
+        suggested_unit_of_measurement="m/s",
     ),
     DuoFernSensorDescription(
         key="sunDirection",
