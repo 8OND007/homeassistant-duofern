@@ -1,5 +1,16 @@
 # Changelog
 
+## [v2.3.3] — 2026-08-01
+
+- **Structured trigger GUI for Umweltsensor (0x69) replaces the 7 text-input fields** — the previous "Wind Trigger", "Temperature Trigger", "Dawn Trigger", "Dusk Trigger", "Sun Direction Trigger", "Sun Height Trigger" text entities each packed all 5 Grenzwert (trigger slot) values into one space-separated string (e.g. `off 15 off off off`), matching FHEM's raw `wCmds` input format but awkward to edit in the HA UI. They're removed and replaced with a proper per-slot control set:
+  - A **Grenzwert Slot selector** (1–5) per trigger group (Wind, Temperature, Dawn, Dusk, Sun) picks which of the 5 slots the other controls below act on. This selection is a local HA UI concept only, not written to the device.
+  - A **Number** entity per group shows/edits the target value (e.g. wind speed, temperature) for the currently selected slot, with min/max/step sourced from FHEM's `wCmds` table where confirmed, or derived from the register's bit width where not yet confirmed against a real device.
+  - A **Switch** entity per group toggles the currently selected slot active/inactive ("Aktiv"/"nutzen" in FHEM).
+  - New dedicated selects for the sun-direction/-height fields with fixed, Homepilot-confirmed discrete options: **Sun Direction Angle** target, **Sun Direction Width** (0/45/90/135/180°), **Sun Height Target**, and **Sun Height Width**.
+  - All of these still write into the same underlying config registers and `writeConfig` push as before — only the GUI representation changed.
+
+- **Known limitation** — several of the new fields' min/max ranges (Sun brightness/delay, "Ab Temperatur von") are derived from the register's bit width rather than confirmed against a real Homepilot slider, and may need widening/narrowing once verified on real hardware.
+
 ## [v2.3.2] — 2026-08-01
 
 - **Umweltsensor dawn/dusk trigger events** — two new event entities ("Dawn"/"Dusk") fire on the "00" sub-channel when the device's `dawn`/`dusk` sensorMsg (0713/0709) is received. Unlike Sun/Wind/Temperature/Rain, FHEM's `30_DUOFERN.pm` has no corresponding "end" message for these two, so they're modeled as momentary `EventEntity` triggers rather than a persistent on/off sensor. The active Grenzwert slot(s) (1–5) are decoded from the event's channel bitmask and passed as extra event data.
