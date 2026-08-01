@@ -2,7 +2,9 @@
 
 ## Umweltsensor (0x69) — Device Clock, Full Register Writes & Trigger Configuration
 
-This release rounds out the Umweltsensor config story started in v2.3.0: latitude/longitude/timezone/DCF/rain-trigger are now written into the real device registers instead of a stub, all 7 multi-channel trigger thresholds (wind, temperature, dawn, dusk, sun, sun direction, sun height) get dedicated text entities, the device's internal clock can be read back, and the actor sub-channel ("01") gets a full set of automation switches and position numbers matching a Rohrmotor/Troll cover.
+This release rounds out the Umweltsensor config story started in v2.3.0: latitude/longitude/timezone/DCF/rain-trigger are now written into the real device registers instead of a stub, all 7 multi-channel trigger thresholds (wind, temperature, dawn, dusk, sun, sun direction, sun height) get dedicated text entities, the device's internal clock can be read back, and the actor sub-channel ("01") gets a full set of automation switches and position numbers matching a Rohrmotor/Troll cover. Thank you @geraldeberle1234 for all the testing and his help!
+
+**Known limitation:** communication with the Umweltsensor device works correctly, but the GUI/entity presentation for its config still needs polishing — this is actively being worked on.
 
 ### Device Date & Time Sensors
 
@@ -59,6 +61,6 @@ The Umweltsensor's actor sub-channel behaves like a Rohrmotor/Troll cover, so it
 
 These use the standard format-23a command set (`async_set_sun_position`, `async_set_ventilating_position`, `async_set_automation`), identical to how other covers handle the same commands.
 
-### Window/door contact sensor
+## Window/door contact sensor
 
 The Fenster-/Türkontakt now reports tilted as expected.

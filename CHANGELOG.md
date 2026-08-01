@@ -1,6 +1,8 @@
 # Changelog
 
-## [v2.3.1] — 2026-07-31
+## [v2.3.1] — 2026-08-01
+
+- **Known limitation** — Umweltsensor device communication (reading/writing config registers) works correctly, but the GUI/entity presentation for its config is still rough and is being improved.
 
 - **Device date/time sensors** — two new diagnostic sensors, "Device Date" and "Device Time", are populated on the Umweltsensor's "00" sub-channel when the **Get Time** button is pressed. Decoded from the BCD-encoded Zeit response frame (`0F..1020…`), translated from `30_DUOFERN.pm`.
 
