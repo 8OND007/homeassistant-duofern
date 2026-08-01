@@ -179,6 +179,7 @@ class DuoFernUmweltsensorDawnDuskEvent(
 
     _attr_has_entity_name = True
     _attr_translation_key = "dawn_dusk"
+    _attr_name = "Dawn/Dusk"
     _attr_event_types = ["dawn", "dusk"]
 
     def __init__(

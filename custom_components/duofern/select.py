@@ -229,6 +229,9 @@ async def async_setup_entry(
                     )
                 )
             entities.append(
+                DuoFernSunDirectionAngleSelect(coordinator, device_state, hex_code)
+            )
+            entities.append(
                 DuoFernSunDirectionWidthSelect(coordinator, device_state, hex_code)
             )
             entities.append(
@@ -394,6 +397,102 @@ class DuoFernGrenzwertSelector(CoordinatorEntity[DuoFernCoordinator], SelectEnti
     async def async_select_option(self, option: str) -> None:
         await self.coordinator.async_set_selected_grenzwert(
             self._device_code, self._group, int(option)
+        )
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        self.async_write_ha_state()
+
+
+class DuoFernSunDirectionAngleSelect(
+    CoordinatorEntity[DuoFernCoordinator], SelectEntity
+):
+    """Sonnenrichtung "Zielrichtung" — confirmed discrete values from Homepilot:
+    22.5/45/67.5/90/112.5/135/157.5/180/202.5/225/247.5/270/292.5/315°.
+
+    Originally built as a continuous Number (0-337.5° in 22.5° steps) because
+    the exact valid set wasn't confirmed yet. Gerald confirmed the real
+    Homepilot dropdown only offers these 14 fixed values — notably NOT 0° and
+    NOT 337.5°, which a naive "0 to 337.5 step 22.5" range would have wrongly
+    allowed. Converted to Select to make invalid values unselectable, matching
+    the same pattern already used for Bereich/Zielhöhe.
+
+    Keeps the current "Bereich" (width) unchanged when only the angle is
+    adjusted, since the device encodes both in the same byte and always needs
+    both written together.
+    """
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "sun_direction_angle"
+    _attr_name = "Sun Direction Target Angle"
+    _attr_icon = "mdi:compass-outline"
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_options = [
+        "22.5",
+        "45",
+        "67.5",
+        "90",
+        "112.5",
+        "135",
+        "157.5",
+        "180",
+        "202.5",
+        "225",
+        "247.5",
+        "270",
+        "292.5",
+        "315",
+    ]
+
+    def __init__(
+        self,
+        coordinator: DuoFernCoordinator,
+        device_state: DuoFernDeviceState,
+        hex_code: str,
+    ) -> None:
+        super().__init__(coordinator)
+        self._hex_code = hex_code
+        self._device_code = device_state.device_code
+        self._attr_unique_id = f"{DOMAIN}_{hex_code}_sun_direction_angle"
+        self._attr_device_info = DeviceInfo(identifiers={(DOMAIN, hex_code)})
+
+    @property
+    def _device_state(self) -> DuoFernDeviceState | None:
+        if self.coordinator.data is None:
+            return None
+        return self.coordinator.data.devices.get(self._hex_code)
+
+    @property
+    def _slot(self) -> int:
+        state = self._device_state
+        return state.selected_grenzwert.get("sun", 1) if state else 1
+
+    @property
+    def available(self) -> bool:
+        state = self._device_state
+        return state is not None and self.coordinator.last_update_success
+
+    @property
+    def current_option(self) -> str:
+        _, angle, _ = self.coordinator.get_trigger_sun_direction_slot(
+            self._device_code, self._slot
+        )
+        # Snap to the nearest confirmed option — the register can technically
+        # hold any of the 16 raw angle_idx slots, but only these 14 are ever
+        # written by this entity or by Homepilot itself.
+        formatted = f"{angle:g}"
+        return (
+            formatted
+            if formatted in self._attr_options
+            else min(self._attr_options, key=lambda o: abs(float(o) - angle))
+        )
+
+    async def async_select_option(self, option: str) -> None:
+        _, _, width = self.coordinator.get_trigger_sun_direction_slot(
+            self._device_code, self._slot
+        )
+        await self.coordinator.async_set_trigger_sun_direction_slot_value(
+            self._device_code, self._slot, float(option), width
         )
 
     @callback

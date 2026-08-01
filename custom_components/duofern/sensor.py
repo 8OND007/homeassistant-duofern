@@ -960,6 +960,18 @@ class DuoFernActiveGrenzwerteSensor(
         self._event_off = event_off
         self._attr_unique_id = f"{DOMAIN}_{hex_code}_{translation_key}"
         self._attr_translation_key = translation_key
+        # Explicit English fallback name — without this AND without a
+        # matching strings.json entry (which this translation_key never had
+        # until now), HA's name resolution falls through to None, and with
+        # has_entity_name=True that means the entity shows ONLY the device
+        # name ("Wetterstation") with nothing distinguishing it from the
+        # other rows. This is exactly what Gerald saw.
+        _FALLBACK_NAMES = {
+            "sun_grenzwerte": "Sun Trigger Slots",
+            "wind_grenzwerte": "Wind Trigger Slots",
+            "temperature_grenzwerte": "Temperature Trigger Slots",
+        }
+        self._attr_name = _FALLBACK_NAMES.get(translation_key, translation_key)
         self._attr_icon = icon
         self._attr_device_info = DeviceInfo(identifiers={(DOMAIN, hex_code)})
         self._active_slots: set[int] = set()

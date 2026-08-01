@@ -47,6 +47,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -86,6 +87,42 @@ _LOGGER = logging.getLogger(__name__)
 # HA event bus name for sensor/button/obstacle events.
 # Use in automations as event trigger: event_type = duofern_event
 DUOFERN_EVENT = "duofern_event"
+
+# Dedicated event bus name for per-Grenzwert-slot device triggers
+# (device_trigger.py). Fired ADDITIONALLY alongside DUOFERN_EVENT — never
+# instead of it — for the specific Umweltsensor sensorMsg events that carry
+# a 5-bit Grenzwert bitmask (startSun/endSun/startWind/endWind/startRain/
+# endRain/startTemp/endTemp/dawn/dusk): one DUOFERN_SLOT_EVENT fires per
+# currently-active slot bit, each carrying a single clean "slot" field
+# (e.g. "3") instead of the raw bitmask. This exists because HA's standard
+# device-trigger delegation (event_trigger.async_attach_trigger) only
+# supports exact-match on event_data fields, not "is bit N of this bitmask
+# set" — see device_trigger.py for the trigger definitions that consume this.
+# Deliberately a SEPARATE event type (not reusing DUOFERN_EVENT) so this adds
+# zero risk to the already-verified DuoFernActiveGrenzwerteSensor (sensor.py)
+# and DuoFernUmweltsensorDawnDuskEvent (event.py) consumers, which continue
+# to listen to DUOFERN_EVENT exactly as before, completely untouched.
+DUOFERN_SLOT_EVENT = "duofern_grenzwert_event"
+
+# event_name values (SENSOR_MESSAGES "name" field) that carry a 5-bit
+# Grenzwert bitmask in their "channel" field — used by _handle_sensor_event
+# to decide when to additionally fire per-slot DUOFERN_SLOT_EVENT events.
+# Every other sensorMsg event_name (button presses, etc.) is left alone —
+# their "channel" field means something else entirely, never a bitmask.
+_GRENZWERT_BITMASK_EVENT_NAMES: frozenset[str] = frozenset(
+    {
+        "startSun",
+        "endSun",
+        "startWind",
+        "endWind",
+        "startRain",
+        "endRain",
+        "startTemp",
+        "endTemp",
+        "dawn",
+        "dusk",
+    }
+)
 
 
 @dataclass
@@ -733,11 +770,17 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
         (all 8 listed above), FHEM does NOT treat this byte as a device
         channel at all — it's a 5-bit BITMASK of which of the up to 5
         configured Grenzwerte (trigger slots) fired simultaneously (FHEM
-        line ~1313-1320: bit x set → Grenzwert x+1 triggered). Our current
-        DuoFernEnvBinarySensor entities don't consult this field — they
-        fire on ANY startSun/endSun/etc. event regardless of which slot(s)
-        caused it, so this bitmask nuance doesn't affect entity correctness,
-        but would matter if per-Grenzwert entities are ever built.
+        line ~1313-1320: bit x set → Grenzwert x+1 triggered).
+        DuoFernActiveGrenzwerteSensor (sensor.py) and
+        DuoFernUmweltsensorDawnDuskEvent (event.py) both decode this bitmask
+        themselves from the DUOFERN_EVENT "channel" field, unchanged here.
+        Additionally, for device_trigger.py's per-Grenzwert-slot triggers
+        (which need exact-match-able single-slot events, not a bitmask —
+        see DUOFERN_SLOT_EVENT's docstring), one DUOFERN_SLOT_EVENT is ALSO
+        fired per currently-active slot bit, alongside the existing single
+        DUOFERN_EVENT. This is purely additive: DUOFERN_EVENT's shape and
+        firing behavior is completely unchanged, zero risk to the sensor.py/
+        event.py consumers already built and verified against it.
 
         Separate finding, NOT fixed here: the same FHEM line shows 0x65
         (Bewegungsmelder) and 0x74 (Wandtaster) ALSO redirect their
@@ -789,6 +832,30 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
                 "channel": event.channel,
             },
         )
+
+        # Additionally fire one DUOFERN_SLOT_EVENT per active Grenzwert slot,
+        # for device_trigger.py's per-slot automation triggers — ONLY for
+        # the known Grenzwert-bearing event names (chan=5 type sensorMsg).
+        # Everything else (remote/button events, etc.) is untouched — their
+        # "channel" field means something else entirely (e.g. a button
+        # group number), not a bitmask, and must never be decoded as one.
+        if event.event_name in _GRENZWERT_BITMASK_EVENT_NAMES:
+            try:
+                raw = int(event.channel, 16)
+            except (TypeError, ValueError):
+                raw = 0
+            # FHEM: channel byte "00" is not a bitmask — slot indeterminate,
+            # don't fire a slot event at all in that case.
+            for x in range(5):
+                if (1 << x) & raw:
+                    self.hass.bus.async_fire(
+                        DUOFERN_SLOT_EVENT,
+                        {
+                            "device_code": fired_device_code,
+                            "event": event.event_name,
+                            "slot": str(x + 1),
+                        },
+                    )
 
         self.async_set_updated_data(self.data)
 
@@ -2897,322 +2964,20 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
             await self._stick.send_command(frame)
 
     # ------------------------------------------------------------------
-    # Umweltsensor trigger threshold setters (wCmds, 30_DUOFERN.pm)
-    # These write to the local weather_config_registers and are pushed
-    # to the device via the writeConfig button. All are channel "00" only.
-    # Multi-channel triggers (count=5) use _raw_update_reg_* in a loop
-    # and call _flush_weather_config once at the end for a single HA notify.
+    # Structured per-Grenzwert GUI (Number/Switch/Select entities)
     # ------------------------------------------------------------------
-
-    async def async_set_trigger_wind(self, device_code: DuoFernId, value: str) -> None:
-        """Set wind trigger thresholds for 5 channels.
-
-        From 30_DUOFERN.pm %wCmds triggerWind:
-          reg=6, byte=0..4, size=1, count=5
-          enable=0x20, mask=0x7F, min=1, max=31, offset=0, shift=0
-          "off" → clear enable bit (0x20) only, preserve value bits
-          "N"   → clear bits 0-6, set 0x20 | N
-        Bit 7 of byte 0 = triggerRain enable (mask=0x7F < 0x80 → never touched).
-        Format: "off 15 off off off" (5 space-separated: off or 1-31 m/s)
-        """
-        state = self.data.devices.get(device_code.hex + "00")
-        if state is None:
-            return
-        parts = (value.split() + ["off"] * 5)[:5]
-        for c, v in enumerate(parts):
-            if v.lower() == "off":
-                self._raw_update_reg_byte(state, 6, c, 0x00, 0x20)
-            else:
-                iv = max(1, min(31, int(float(v))))
-                self._raw_update_reg_byte(state, 6, c, 0x20 | iv, 0x7F)
-        self._flush_weather_config(state)
-
-    async def async_set_trigger_temperature(
-        self, device_code: DuoFernId, value: str
-    ) -> None:
-        """Set temperature trigger thresholds for 5 channels.
-
-        From 30_DUOFERN.pm %wCmds triggerTemperature:
-          reg=6, byte=5..9, size=1, count=5
-          enable=0x80, mask=0xFF, min=-40, max=80, offset=40, shift=0
-          "off" → clear enable bit (0x80) only
-          "N"   → clear all bits, set 0x80 | (N + 40) in bits 0-6
-        Format: "off -5 22 off off" (5 space-separated: off or -40..80°C)
-        """
-        state = self.data.devices.get(device_code.hex + "00")
-        if state is None:
-            return
-        parts = (value.split() + ["off"] * 5)[:5]
-        for c, v in enumerate(parts):
-            if v.lower() == "off":
-                self._raw_update_reg_byte(state, 6, 5 + c, 0x00, 0x80)
-            else:
-                iv = max(-40, min(80, int(float(v))))
-                self._raw_update_reg_byte(
-                    state, 6, 5 + c, 0x80 | ((iv + 40) & 0x7F), 0xFF
-                )
-        self._flush_weather_config(state)
-
-    async def async_set_trigger_dawn(self, device_code: DuoFernId, value: str) -> None:
-        """Set dawn trigger thresholds for 5 channels.
-
-        From 30_DUOFERN.pm %wCmds triggerDawn:
-          reg=0..2, size=4, count=5, pad=int(c/2)*2
-          enable=0x10000000 (bit 28), mask=0x1000007F
-          min=1, max=100, offset=-1, shift=0
-          value stored = value - 1 in bits 0-6 + bit 28 enable
-
-        Register/byte positions per channel (c): shared 32-bit word with triggerDusk.
-          c=0 → reg0 byte0 | c=1 → reg0 byte4 | c=2 → reg1 byte0
-          c=3 → reg1 byte4 | c=4 → reg2 byte0
-
-        Format: "off 50 off off off" (off or 1-100)
-        """
-        state = self.data.devices.get(device_code.hex + "00")
-        if state is None:
-            return
-        _pos = [(0, 0), (0, 4), (1, 0), (1, 4), (2, 0)]
-        parts = (value.split() + ["off"] * 5)[:5]
-        for c, v in enumerate(parts):
-            reg, byte = _pos[c]
-            if v.lower() == "off":
-                self._raw_update_reg_word32(state, reg, byte, 0x00, 0x10000000)
-            else:
-                iv = max(1, min(100, int(float(v))))
-                new_bits = 0x10000000 | ((iv - 1) & 0x7F)
-                self._raw_update_reg_word32(state, reg, byte, new_bits, 0x1000007F)
-        self._flush_weather_config(state)
-
-    async def async_set_trigger_dusk(self, device_code: DuoFernId, value: str) -> None:
-        """Set dusk trigger thresholds for 5 channels.
-
-        From 30_DUOFERN.pm %wCmds triggerDusk:
-          reg=0..2, size=4, count=5, pad=int(c/2)*2
-          enable=0x20000000 (bit 29), mask=0x201FC000
-          min=1, max=100, offset=-1, shift=14
-          value stored = (value - 1) << 14 in bits 14-20 + bit 29 enable
-
-        Shares the same 32-bit word per channel with triggerDawn (different bits).
-        Format: "off 50 off off off" (off or 1-100)
-        """
-        state = self.data.devices.get(device_code.hex + "00")
-        if state is None:
-            return
-        _pos = [(0, 0), (0, 4), (1, 0), (1, 4), (2, 0)]
-        parts = (value.split() + ["off"] * 5)[:5]
-        for c, v in enumerate(parts):
-            reg, byte = _pos[c]
-            if v.lower() == "off":
-                self._raw_update_reg_word32(state, reg, byte, 0x00, 0x20000000)
-            else:
-                iv = max(1, min(100, int(float(v))))
-                new_bits = 0x20000000 | (((iv - 1) & 0x7F) << 14)
-                self._raw_update_reg_word32(state, reg, byte, new_bits, 0x201FC000)
-        self._flush_weather_config(state)
-
-    async def async_set_trigger_sun(self, device_code: DuoFernId, value: str) -> None:
-        """Set sun trigger values for 5 channels.
-
-        From 30_DUOFERN.pm %wCmds triggerSun + FHEM wCmds set handler:
-          reg=3..5, byte=0 (pad=c), size=4, count=5
-          enable=0x20000000 (bit 29), mask=0x3FFFFFC0
-
-        Encoding (from FHEM set handler):
-          encoded = (kLux-1)<<12 | (sunMin-1)<<19 | (shadowMin-1)<<24
-          if temp: encoded |= (temp+5)<<7 | 0x40
-          new_bits = 0x20000000 | (encoded & 0x3FFFFFC0)
-
-        Channel positions: byte_offset = 30 + 5*c, reg = offset//10, byte = offset%10
-          c=0→reg3 b0 | c=1→reg3 b5 | c=2→reg4 b0 | c=3→reg4 b5 | c=4→reg5 b0
-
-        Format: "off 50:5:5 off off off"
-          Per value: "off" or "kLux:sunMin:shadowMin[:minTemp]"
-            kLux: 1-100 (brightness threshold in kLux)
-            sunMin: 1-30 (minutes of sun to trigger)
-            shadowMin: 1-30 (minutes of shadow to trigger)
-            minTemp: -5 to 26 (optional minimum temperature °C)
-        """
-        state = self.data.devices.get(device_code.hex + "00")
-        if state is None:
-            return
-        parts = (value.split() + ["off"] * 5)[:5]
-        for c, v in enumerate(parts):
-            byte_offset = 30 + 5 * c
-            reg, byte = byte_offset // 10, byte_offset % 10
-            if v.lower() == "off":
-                self._raw_update_reg_word32(state, reg, byte, 0x00, 0x20000000)
-            else:
-                tokens = v.split(":")
-                if len(tokens) < 3:
-                    _LOGGER.warning(
-                        "triggerSun channel %d: expected kLux:sunMin:shadowMin[:temp], got %r",
-                        c,
-                        v,
-                    )
-                    continue
-                try:
-                    klux = max(1, min(100, int(tokens[0])))
-                    sun_m = max(1, min(30, int(tokens[1])))
-                    shd_m = max(1, min(30, int(tokens[2])))
-                except ValueError:
-                    _LOGGER.warning("triggerSun channel %d: non-integer in %r", c, v)
-                    continue
-                # Encoding from 30_DUOFERN.pm FHEM set handler
-                enc = ((klux - 1) << 12) | ((sun_m - 1) << 19) | ((shd_m - 1) << 24)
-                if len(tokens) > 3:
-                    try:
-                        temp = max(-5, min(26, int(tokens[3])))
-                        enc |= ((temp + 5) << 7) | 0x40
-                    except ValueError:
-                        pass
-                new_bits = 0x20000000 | (enc & 0x3FFFFFC0)
-                self._raw_update_reg_word32(state, reg, byte, new_bits, 0x3FFFFFC0)
-        self._flush_weather_config(state)
-
-    async def async_set_trigger_sun_direction(
-        self, device_code: DuoFernId, value: str
-    ) -> None:
-        """Set sun direction trigger for 5 channels.
-
-        From 30_DUOFERN.pm %wCmds triggerSunDirection:
-          reg=3..5, byte=1 (pad=c), size=4, count=5
-          enable=0x00, mask=0x000000FF, shift=0
-        Stored in the lowest byte (byte_pos+3) of the 4-byte word.
-
-        Encoding (from FHEM set handler):
-          angle_idx = int((startAngle + 11.25) / 22.5)
-          width_idx = int((width + 22.5) / 45)
-          if (angle_idx + width_idx*2) > 15: angle_idx = 15 - width_idx*2
-          encoded_byte = (angle_idx + width_idx) | (width_idx << 4) | 0x80
-
-        Channel positions: byte_offset = 31 + 5*c (base_byte=1)
-          c=0→reg3 b1 | c=1→reg3 b6 | c=2→reg4 b1 | c=3→reg4 b6 | c=4→reg5 b1
-
-        Format: "off 90:90 off off off"
-          Per value: "off" or "startAngle:width"
-            startAngle: 0..292.5 (steps of 22.5°)
-            width: 45..180 (steps of 45°)
-        """
-        state = self.data.devices.get(device_code.hex + "00")
-        if state is None:
-            return
-        parts = (value.split() + ["off"] * 5)[:5]
-        for c, v in enumerate(parts):
-            byte_offset = 31 + 5 * c
-            reg, byte = byte_offset // 10, byte_offset % 10
-            if v.lower() == "off":
-                # FHEM off-case: read current sunHeight state for this channel.
-                # If sunHeight IS active (word_byte2 bits 3-4 non-zero), set bit 7
-                # of word_byte3 to 1 (→ 0x81) to signal the device that sun
-                # triggering is still relevant for this channel. If sunHeight is
-                # also inactive, clear bit 7 (→ 0x01).
-                # From 30_DUOFERN.pm: @tSunHeight unpack 'x66A2...', check & 0x18
-                reg_hex = state.weather_config_registers.get(reg, "0" * 20)
-                word_byte2 = bytearray.fromhex(reg_hex)[byte + 2]
-                off_val = 0x81 if (word_byte2 & 0x18) else 0x01
-                self._raw_update_reg_word32(state, reg, byte, off_val, 0xFF)
-            else:
-                tokens = v.split(":")
-                if len(tokens) < 2:
-                    _LOGGER.warning(
-                        "triggerSunDirection channel %d: expected startAngle:width, got %r",
-                        c,
-                        v,
-                    )
-                    continue
-                try:
-                    angle = float(tokens[0])
-                    width = float(tokens[1])
-                except ValueError:
-                    _LOGGER.warning(
-                        "triggerSunDirection channel %d: non-numeric in %r", c, v
-                    )
-                    continue
-                # Empirical -45° correction, symmetric to the +45° applied in
-                # decode_weather_config() (see comment there for the 3 real-device
-                # data points that confirmed this). Applied here BEFORE the
-                # original FHEM angle_idx formula so a value the user sets here
-                # round-trips correctly through a later getConfig read.
-                angle_idx = int((angle - 45 + 11.25) / 22.5)
-                width_idx = int((width + 22.5) / 45)
-                if (angle_idx + width_idx * 2) > 15:
-                    angle_idx = 15 - width_idx * 2
-                enc_byte = ((angle_idx + width_idx) | (width_idx << 4) | 0x80) & 0xFF
-                self._raw_update_reg_word32(state, reg, byte, enc_byte, 0xFF)
-        self._flush_weather_config(state)
-
-    async def async_set_trigger_sun_height(
-        self, device_code: DuoFernId, value: str
-    ) -> None:
-        """Set sun height trigger for 5 channels.
-
-        From 30_DUOFERN.pm %wCmds triggerSunHeight:
-          reg=3..5, byte=1 (pad=c), size=4, count=5
-          enable=0x00, mask=0x00001F80, shift=0
-        Stored in bits 7-12 of the 4-byte word (spanning word_byte2 and word_byte3).
-
-        Encoding (from FHEM set handler):
-          from_idx = int((fromAngle + 6.5) / 13)
-          width_idx = int((widthAngle + 13) / 26)
-          if (from_idx + width_idx*2) > 7: from_idx = 7 - width_idx*2
-          raw = (from_idx + width_idx) << 8 | width_idx << 11 | 0x80
-          → stored with mask 0x1F80 (bits 7-12 of the 32-bit word)
-
-        Channel positions: byte_offset = 31 + 5*c (same as triggerSunDirection)
-        Shares the same 32-bit word at byte_pos+1 as triggerSunDirection but
-        different bit fields (mask=0x1F80 vs 0xFF → no overlap).
-
-        Format: "off 13:26 off off off"
-          Per value: "off" or "fromAngle:widthAngle"
-            fromAngle: 0..65 (steps of 13°, e.g. 0,13,26,39,52,65)
-            widthAngle: 26 or 52 (1 or 2 × 26°)
-        """
-        state = self.data.devices.get(device_code.hex + "00")
-        if state is None:
-            return
-        parts = (value.split() + ["off"] * 5)[:5]
-        for c, v in enumerate(parts):
-            byte_offset = 31 + 5 * c
-            reg, byte = byte_offset // 10, byte_offset % 10
-            if v.lower() == "off":
-                # FHEM off-case: read current sunDir state for this channel.
-                # If sunDir IS active (word_byte3 bits 4-6 non-zero), set bit 7
-                # of word_byte3 to 1 (→ 0x0180) to signal the device that sun
-                # triggering is still relevant for this channel. If sunDir is
-                # also inactive, clear bit 7 (→ 0x0100).
-                # From 30_DUOFERN.pm: @tSunDir unpack 'x68A2...', check & 0x70
-                reg_hex = state.weather_config_registers.get(reg, "0" * 20)
-                word_byte3 = bytearray.fromhex(reg_hex)[byte + 3]
-                off_val = 0x0180 if (word_byte3 & 0x70) else 0x0100
-                self._raw_update_reg_word32(state, reg, byte, off_val, 0x1F80)
-            else:
-                tokens = v.split(":")
-                if len(tokens) < 2:
-                    _LOGGER.warning(
-                        "triggerSunHeight channel %d: expected fromAngle:widthAngle, got %r",
-                        c,
-                        v,
-                    )
-                    continue
-                try:
-                    from_angle = float(tokens[0])
-                    width_angle = float(tokens[1])
-                except ValueError:
-                    _LOGGER.warning(
-                        "triggerSunHeight channel %d: non-numeric in %r", c, v
-                    )
-                    continue
-                from_idx = int((from_angle + 6.5) / 13)
-                width_idx = int((width_angle + 13) / 26)
-                if (from_idx + width_idx * 2) > 7:
-                    from_idx = 7 - width_idx * 2
-                # raw bits 7-12 of 32-bit word:
-                #   bit7 (0x80) in word_byte3 → decoded as sunDir interop
-                #   bits8-12 in word_byte2 → decoded by tSunHeight
-                raw = ((from_idx + width_idx) << 8) | (width_idx << 11) | 0x80
-                self._raw_update_reg_word32(state, reg, byte, raw & 0x1F80, 0x1F80)
-        self._flush_weather_config(state)
-
+    #
+    # Umweltsensor 0x69 trigger thresholds are read/written per individual
+    # Grenzwert slot (1-5) via the coordinator methods below, called from
+    # Number/Switch/Select entities in number.py/switch.py/select.py. The
+    # earlier space-separated-string setters (async_set_trigger_wind, etc.,
+    # one call writing all 5 slots as "off 15 off off off" style text) have
+    # been removed — they backed the old text.py trigger entities, which no
+    # longer exist. Removed rather than kept as dead code because one of them
+    # (async_set_trigger_sun_direction) carried the same angle-encoding bug
+    # found and fixed in _write_trigger_sun_direction_slot below (see that
+    # method's docstring and NOTES.md) — leaving a buggy, uncalled copy
+    # around risked it being copy-pasted back into use later.
     # ------------------------------------------------------------------
     # Structured per-Grenzwert GUI (Number/Switch/Select entities)
     # ------------------------------------------------------------------
@@ -3435,7 +3200,9 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
         state = self.data.devices.get(device_code.hex + "00")
         if state is None:
             return
-        minutes = max(1, min(30, minutes))
+        minutes = max(
+            1, min(32, minutes)
+        )  # confirmed by Gerald (real Homepilot slider)
         reg, byte = self._SUN_POS[slot - 1]
         self._set_weather_config_word32(
             state, reg, byte, (minutes - 1) << 19, 0x00F80000
@@ -3447,7 +3214,9 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
         state = self.data.devices.get(device_code.hex + "00")
         if state is None:
             return
-        minutes = max(1, min(30, minutes))
+        minutes = max(
+            1, min(32, minutes)
+        )  # confirmed by Gerald (real Homepilot slider)
         reg, byte = self._SUN_POS[slot - 1]
         self._set_weather_config_word32(
             state, reg, byte, (minutes - 1) << 24, 0x1F000000
@@ -3493,6 +3262,12 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
     ) -> tuple[bool, float, float]:
         """Returns (enabled, angle, width). angle/width come from local memory
         while disabled (device has none to offer); from the register while enabled.
+
+        Decode uses modular arithmetic: angle_idx = (center - width_idx) % 16,
+        NOT plain subtraction. Verified against all 3 of Gerald's real captured
+        bytes (0xA1→22.5°, 0xA2→45°, 0xA3→67.5°, all at width=90°) plus his full
+        confirmed list of 14 valid angles × 4 valid widths (56 combinations,
+        0 mismatches) — see NOTES.md for the analysis that found this.
         """
         state = self.data.devices.get(device_code.hex + "00")
         if state is None:
@@ -3504,7 +3279,8 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
         enabled = bool(width_idx)
         if enabled:
             center = t_dir & 0x0F
-            angle = (center - width_idx) * 22.5 + 45  # empirical +45, see protocol.py
+            angle_idx = (center - width_idx) % 16
+            angle = (angle_idx * 22.5 + 45) % 360
             width = width_idx * 45
             return (True, angle, width)
         remembered = state.sun_direction_memory.get(slot, (0.0, 90.0))
@@ -3556,18 +3332,23 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
     async def _write_trigger_sun_direction_slot(
         self, device_code: DuoFernId, slot: int, angle: float, width: float
     ) -> None:
+        """Encode angle_idx with math.floor() (NOT int()/truncation) and let it
+        wrap naturally via the 4-bit mask — NOT the reduction-style clamp FHEM's
+        SET-handler used, which turned out to silently corrupt valid
+        angle+width combinations (e.g. angle=22.5°,width=90° encoded wrong and
+        decoded back to 292.5°). Verified byte-exact against Gerald's real
+        device byte for that exact combination (0xA1) and against all 14
+        confirmed angles × 4 confirmed widths (56 combinations, 0 mismatches).
+        See NOTES.md for the full analysis.
+        """
         state = self.data.devices.get(device_code.hex + "00")
         if state is None:
             return
         reg, byte = self._SUN_DIR_HEIGHT_POS[slot - 1]
-        # Empirical -45° correction, symmetric to the +45° in decode — see
-        # protocol.py decode_weather_config() for the 3 real-device data
-        # points that confirmed this (all at width=90°, see NOTES.md caveat).
-        angle_idx = int((angle - 45 + 11.25) / 22.5)
+        angle_idx = math.floor((angle - 45 + 11.25) / 22.5) % 16
         width_idx = int((width + 22.5) / 45)
-        if (angle_idx + width_idx * 2) > 15:
-            angle_idx = 15 - width_idx * 2
-        enc_byte = ((angle_idx + width_idx) | (width_idx << 4) | 0x80) & 0xFF
+        center = (angle_idx + width_idx) & 0x0F
+        enc_byte = (center | (width_idx << 4) | 0x80) & 0xFF
         self._set_weather_config_word32(state, reg, byte, enc_byte, 0xFF)
 
     def get_trigger_sun_height_slot(

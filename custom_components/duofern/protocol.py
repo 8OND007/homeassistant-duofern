@@ -1421,22 +1421,35 @@ class DuoFernDecoder:
 
             # tSunDir: enabled when bits 4-6 of byte non-zero
             #
-            # FHEM's source formula is angle = (center - width) * 22.5, but
-            # this was empirically found to be off by a constant +45° against
-            # a real Umweltsensor device (confirmed with 3 independent data
-            # points from real getConfig reads vs. the value set in Homepilot
-            # at that exact moment):
-            #   Homepilot 45.0°  <-> raw byte gave 0.0°   (FHEM formula) / 45.0° (corrected)
-            #   Homepilot 22.5°  <-> raw byte gave -22.5° (FHEM formula) / 22.5° (corrected)
-            #   Homepilot 67.5°  <-> raw byte gave 22.5°  (FHEM formula) / 67.5° (corrected)
-            # All 3 were captured with width=90° (width_idx=2); the correction
-            # has not been confirmed at other width settings, so if it turns
-            # out to be width-dependent rather than a flat +45°, this may
-            # need revisiting.
+            # FHEM's source formula is angle = (center - width) * 22.5 (plain
+            # subtraction). This was found to be wrong in two ways, both
+            # confirmed against real Umweltsensor data from Gerald:
+            #
+            # 1. A flat +45° offset — confirmed with 3 real getConfig reads
+            #    matched against the value set in Homepilot at that moment
+            #    (45.0°, 22.5°, 67.5°, all at width=90°/width_idx=2).
+            #
+            # 2. Plain subtraction breaks whenever center < width_idx (i.e.
+            #    the low nibble wrapped around during encoding) — e.g. angle
+            #    22.5° at width 90° produced center=1, width_idx=2, and
+            #    plain subtraction gives (1-2)*22.5+45 = -22.5+45 = 22.5...
+            #    which looks right for that one value by coincidence, but the
+            #    encoder side using the same non-modular approach silently
+            #    corrupted several of Gerald's confirmed Homepilot angles
+            #    (values that require the low nibble to wrap past 0). Fixed
+            #    by taking (center - width_idx) modulo 16 instead of a plain
+            #    subtraction, matching the hardware's actual 4-bit wraparound
+            #    behavior (verified: Gerald's real byte 0xA1 = 22.5°/width 90°
+            #    decodes correctly, and all 14 of his confirmed valid angles ×
+            #    4 confirmed valid widths — 56 combinations — round-trip with
+            #    zero mismatches). See coordinator.py's
+            #    get_trigger_sun_direction_slot / _write_trigger_sun_direction_slot
+            #    for the live implementation and NOTES.md for the full writeup.
             if (t_dir >> 4) & 0x07:
                 center = t_dir & 0x0F
                 width = (t_dir >> 4) & 0x07
-                dir_vals.append(f"{(center - width) * 22.5 + 45}:{width * 45}")
+                angle_idx = (center - width) % 16
+                dir_vals.append(f"{(angle_idx * 22.5 + 45) % 360}:{width * 45}")
             else:
                 dir_vals.append("off")
 

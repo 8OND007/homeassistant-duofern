@@ -439,9 +439,10 @@ async def async_setup_entry(
                 entities.append(
                     DuoFernGrenzwertNumber(coordinator, device_state, hex_code, desc)
                 )
-            entities.append(
-                DuoFernSunDirectionAngleNumber(coordinator, device_state, hex_code)
-            )
+            # Sonnenrichtung "Zielrichtung" moved to select.py — Gerald
+            # confirmed it only takes 14 fixed values (22.5°/45°/.../315°,
+            # NOT a continuous range), so it belongs as a Select, not a
+            # Number. See DuoFernSunDirectionAngleSelect in select.py.
 
     # Register this platform's unique_ids centrally so __init__.py can
     # remove stale entities from previous integration versions.
@@ -639,7 +640,7 @@ GRENZWERT_NUMBER_DESCRIPTIONS: tuple[DuoFernGrenzwertNumberDescription, ...] = (
         icon="mdi:brightness-6",
         group="sun",
         native_min_value=1,
-        native_max_value=100,  # derived from bit-width, not Homepilot-confirmed
+        native_max_value=100,  # confirmed by Gerald against real Homepilot slider
         native_step=1,
         native_unit_of_measurement="klx",
         get_method="get_trigger_sun_slot",
@@ -653,11 +654,7 @@ GRENZWERT_NUMBER_DESCRIPTIONS: tuple[DuoFernGrenzwertNumberDescription, ...] = (
         icon="mdi:timer-sand",
         group="sun",
         native_min_value=1,
-        native_max_value=30,  # derived from bit-width, not Homepilot-confirmed
-        native_step=1,
-        native_unit_of_measurement="min",
-        get_method="get_trigger_sun_slot",
-        set_method="async_set_trigger_sun_slot_sun_minutes",
+        native_max_value=32,  # confirmed by Gerald against real Homepilot slider
         value_index=2,
     ),
     DuoFernGrenzwertNumberDescription(
@@ -667,11 +664,7 @@ GRENZWERT_NUMBER_DESCRIPTIONS: tuple[DuoFernGrenzwertNumberDescription, ...] = (
         icon="mdi:timer-sand",
         group="sun",
         native_min_value=1,
-        native_max_value=30,  # derived from bit-width, not Homepilot-confirmed
-        native_step=1,
-        native_unit_of_measurement="min",
-        get_method="get_trigger_sun_slot",
-        set_method="async_set_trigger_sun_slot_shadow_minutes",
+        native_max_value=32,  # confirmed by Gerald against real Homepilot slider
         value_index=3,
     ),
     DuoFernGrenzwertNumberDescription(
@@ -745,74 +738,6 @@ class DuoFernGrenzwertNumber(CoordinatorEntity[DuoFernCoordinator], NumberEntity
     async def async_set_native_value(self, value: float) -> None:
         set_fn = getattr(self.coordinator, self._desc.set_method)
         await set_fn(self._device_code, self._slot, int(round(value)))
-
-    @callback
-    def _handle_coordinator_update(self) -> None:
-        self.async_write_ha_state()
-
-
-class DuoFernSunDirectionAngleNumber(
-    CoordinatorEntity[DuoFernCoordinator], NumberEntity
-):
-    """Sonnenrichtung "Zielrichtung" — continuous Number instead of a fixed
-    option list (safe assumption pending Gerald confirming the exact valid
-    range in Homepilot — see NOTES.md). Keeps the current "Bereich" (width)
-    unchanged when only the angle is adjusted, since the device encodes both
-    in the same byte and always needs both written together.
-    """
-
-    _attr_has_entity_name = True
-    _attr_translation_key = "sun_direction_angle"
-    _attr_name = "Sun Direction Target Angle"
-    _attr_icon = "mdi:compass-outline"
-    _attr_entity_category = EntityCategory.CONFIG
-    _attr_native_min_value = 0
-    _attr_native_max_value = 337.5
-    _attr_native_step = 22.5
-    _attr_native_unit_of_measurement = "°"
-
-    def __init__(
-        self,
-        coordinator: DuoFernCoordinator,
-        device_state: DuoFernDeviceState,
-        hex_code: str,
-    ) -> None:
-        super().__init__(coordinator)
-        self._hex_code = hex_code
-        self._device_code = device_state.device_code
-        self._attr_unique_id = f"{DOMAIN}_{hex_code}_sun_direction_angle"
-        self._attr_device_info = DeviceInfo(identifiers={(DOMAIN, hex_code)})
-
-    @property
-    def _device_state(self) -> DuoFernDeviceState | None:
-        if self.coordinator.data is None:
-            return None
-        return self.coordinator.data.devices.get(self._hex_code)
-
-    @property
-    def _slot(self) -> int:
-        state = self._device_state
-        return state.selected_grenzwert.get("sun", 1) if state else 1
-
-    @property
-    def available(self) -> bool:
-        state = self._device_state
-        return state is not None and self.coordinator.last_update_success
-
-    @property
-    def native_value(self) -> float:
-        _, angle, _ = self.coordinator.get_trigger_sun_direction_slot(
-            self._device_code, self._slot
-        )
-        return angle
-
-    async def async_set_native_value(self, value: float) -> None:
-        _, _, width = self.coordinator.get_trigger_sun_direction_slot(
-            self._device_code, self._slot
-        )
-        await self.coordinator.async_set_trigger_sun_direction_slot_value(
-            self._device_code, self._slot, value, width
-        )
 
     @callback
     def _handle_coordinator_update(self) -> None:

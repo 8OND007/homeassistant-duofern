@@ -197,9 +197,13 @@ One sensor entity per measurement, updated from the weather frame:
 | Sun Direction (Sonnenrichtung) | ° | — |
 | Sun Height (Sonnenhöhe) | ° | — |
 
-- **Rain Detected** — `moisture` binary sensor. Updated from the `isRaining` bit in every weather frame and reacts instantly to `startRain`/`endRain` device events. State survives HA restarts.
+- **Rain Detected** — `moisture` binary sensor. Updated from the `isRaining` bit in every weather frame AND from `startRain`/`endRain` sensorMsg threshold events (same Grenzwert-bitmask mechanism as below). The verified weather-frame bit always wins: it force-clears any threshold-event state whenever it reports no rain, so the sensor can never get stuck "raining" for longer than one weather-frame interval (~1 min).
+- **Active-Grenzwerte sensors (Sun / Wind / Temperature)** — three sensors report which of the up to 5 configured trigger thresholds ("Grenzwerte") are currently active, as a comma-joined list (e.g. `"1,3"`), decoded from the sensorMsg channel bitmask. Use a template condition in automations to filter by a specific Grenzwert, e.g. `{{ '3' in states('sensor...wind_grenzwerte').split(',') }}` — or use the per-Grenzwert **device automation triggers** described below instead, which don't need a template.
+- **Dawn/Dusk event entity** — a single `Dawn/Dusk` event entity fires `dawn` or `dusk` when the corresponding sensorMsg (0713/0709) arrives; FHEM has no "end" message for these two, so they're a momentary event rather than a persistent sensor. Which Grenzwert(e) fired is included as event data (`grenzwerte: "1,3"`).
 - **Device Date / Device Time** — diagnostic sensors populated by pressing the **Get Time** button; reflect the Umweltsensor's own internal clock.
 - **Buttons** — **Get Weather**, **Get Time**, **Get Config**, **Write Config**, **Set Time** (pushes the current HA time to the device).
+
+**Automation triggers for Sonne/Wind/Temperatur/Morgendämmerung/Abenddämmerung**: each of these five groups offers 5 (or 10, for the start/end pairs) dedicated device automation triggers — one per Grenzwert slot, clearly labelled e.g. "Wind Grenzwert 3 – Start", "Temperatur Grenzwert 1 – Überschritten", "Morgendämmerung Grenzwert 2 – Ausgelöst". Pick "Device" as the trigger type in the automation editor, select the Umweltsensor's weather-station device, then choose the specific Grenzwert/subtype combination from the dropdown — no template needed. Regen only has a flat Start/Ende trigger (no Grenzwert list, matching Homepilot's own single on/off toggle for rain).
 
 Config entities (read via **Get Config**, written to the device via the **Write Config** button):
 
@@ -210,7 +214,11 @@ Config entities (read via **Get Config**, written to the device via the **Write 
 | Trigger Rain | Switch | Enable/disable the rain trigger |
 | Latitude / Longitude | Number | Location used for sun position calculation |
 | Timezone Offset | Number | Timezone offset (0–23) used for sun calculations |
-| Wind / Temperature / Dawn / Dusk / Sun / Sun Direction / Sun Height Triggers | Text | 5-channel trigger thresholds, space-separated in FHEM's native format (e.g. `off 15 off off off`) |
+| Grenzwert Slot (Wind / Temperature / Dawn / Dusk / Sun) | Select | Picks which of the 5 trigger slots the controls below act on — a local HA UI concept, not written to the device |
+| Trigger Active | Switch | Enable/disable the currently selected Grenzwert slot (per group) |
+| Target Value (Wind speed / Temperature / Dawn brightness / Dusk brightness / Sun brightness / Sun detection delay / Shadow detection delay / Sun minimum temperature) | Number | The threshold value for the currently selected Grenzwert slot |
+| Sun Direction Target Angle / Width, Sun Height Target / Width | Select | Fixed, Homepilot-confirmed discrete options for the currently selected Sun Grenzwert slot |
+| Sun Link Temperature | Switch | Couples the Sun trigger to a minimum temperature ("Mit Temperatur verknüpfen") |
 
 #### Sub-Channel "01" — Actor
 

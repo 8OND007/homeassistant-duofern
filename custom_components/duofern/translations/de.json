@@ -349,9 +349,6 @@
       },
       "sun_grenzwert_temp": {
         "name": "Sonne Ab Temperatur von"
-      },
-      "sun_direction_angle": {
-        "name": "Sonnenrichtung Zielrichtung"
       }
     },
     "select": {
@@ -448,6 +445,9 @@
       },
       "sun_height_width": {
         "name": "Sonnenhöhe Bereich"
+      },
+      "sun_direction_angle": {
+        "name": "Sonnenrichtung Zielrichtung"
       }
     },
     "sensor": {
@@ -477,11 +477,25 @@
       },
       "boost_started": {
         "name": "Boost gestartet"
+      },
+      "sun_grenzwerte": {
+        "name": "Sonne Grenzwerte"
+      },
+      "wind_grenzwerte": {
+        "name": "Wind Grenzwerte"
+      },
+      "temperature_grenzwerte": {
+        "name": "Temperatur Grenzwerte"
       }
     },
     "text": {
       "pair_code_input": {
         "name": "Gerätecode-Eingabe"
+      }
+    },
+    "event": {
+      "dawn_dusk": {
+        "name": "Morgen-/Abenddämmerung"
       }
     }
   },
@@ -496,7 +510,32 @@
       "sun": "Sonne – {subtype}",
       "wind": "Wind – {subtype}",
       "rain": "Regen – {subtype}",
-      "temperature": "Temperatur – {subtype}"
+      "temperature": "Temperatur – {subtype}",
+      "sun_1": "Sonne Grenzwert 1 – {subtype}",
+      "sun_2": "Sonne Grenzwert 2 – {subtype}",
+      "sun_3": "Sonne Grenzwert 3 – {subtype}",
+      "sun_4": "Sonne Grenzwert 4 – {subtype}",
+      "sun_5": "Sonne Grenzwert 5 – {subtype}",
+      "wind_1": "Wind Grenzwert 1 – {subtype}",
+      "wind_2": "Wind Grenzwert 2 – {subtype}",
+      "wind_3": "Wind Grenzwert 3 – {subtype}",
+      "wind_4": "Wind Grenzwert 4 – {subtype}",
+      "wind_5": "Wind Grenzwert 5 – {subtype}",
+      "temperature_1": "Temperatur Grenzwert 1 – {subtype}",
+      "temperature_2": "Temperatur Grenzwert 2 – {subtype}",
+      "temperature_3": "Temperatur Grenzwert 3 – {subtype}",
+      "temperature_4": "Temperatur Grenzwert 4 – {subtype}",
+      "temperature_5": "Temperatur Grenzwert 5 – {subtype}",
+      "dawn_1": "Morgendämmerung Grenzwert 1 – {subtype}",
+      "dawn_2": "Morgendämmerung Grenzwert 2 – {subtype}",
+      "dawn_3": "Morgendämmerung Grenzwert 3 – {subtype}",
+      "dawn_4": "Morgendämmerung Grenzwert 4 – {subtype}",
+      "dawn_5": "Morgendämmerung Grenzwert 5 – {subtype}",
+      "dusk_1": "Abenddämmerung Grenzwert 1 – {subtype}",
+      "dusk_2": "Abenddämmerung Grenzwert 2 – {subtype}",
+      "dusk_3": "Abenddämmerung Grenzwert 3 – {subtype}",
+      "dusk_4": "Abenddämmerung Grenzwert 4 – {subtype}",
+      "dusk_5": "Abenddämmerung Grenzwert 5 – {subtype}"
     },
     "trigger_subtype": {
       "up": "Hoch",
@@ -508,7 +547,10 @@
       "on": "Ein",
       "off": "Aus",
       "start": "Start",
-      "end": "Ende"
+      "end": "Ende",
+      "exceeded": "Überschritten",
+      "undercut": "Unterschritten",
+      "triggered": "Ausgelöst"
     }
   },
   "services": {
