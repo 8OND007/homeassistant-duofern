@@ -54,6 +54,11 @@ class DuoFernNumberDescription(NumberEntityDescription):
     reading_key: str = ""
     device_types: frozenset[int] = frozenset()
     coordinator_method: str = ""
+    # When set, only create this entity for the matching sub-channel.
+    # None (default) → no restriction; existing descriptions are unaffected.
+    # Used for 0x69 Umweltsensor to keep config numbers on "00" and actor
+    # numbers on "01".
+    channel_filter: str | None = None
 
 
 # ALL_COVER_TYPES and TROLL_COVER_TYPES are imported from const.py to avoid
@@ -255,7 +260,9 @@ NUMBER_DESCRIPTIONS: tuple[DuoFernNumberDescription, ...] = (
         device_types=frozenset({0x73}),
         coordinator_method="async_set_temperature_threshold4",
     ),
-    # --- Umweltsensor 00: location config ---
+    # --- Umweltsensor channel "00": location config ---
+    # These come from the getConfig register decode (reg7) and must only
+    # appear on the "00" (weather station) sub-channel.
     DuoFernNumberDescription(
         key="latitude",
         translation_key="latitude",
@@ -272,7 +279,8 @@ NUMBER_DESCRIPTIONS: tuple[DuoFernNumberDescription, ...] = (
         entity_category=EntityCategory.CONFIG,
         icon="mdi:map-marker",
         device_types=frozenset({0x69}),
-        coordinator_method="async_set_umweltsensor_number",
+        coordinator_method="async_set_umweltsensor_latitude",
+        channel_filter="00",
     ),
     DuoFernNumberDescription(
         key="longitude",
@@ -291,7 +299,8 @@ NUMBER_DESCRIPTIONS: tuple[DuoFernNumberDescription, ...] = (
         entity_category=EntityCategory.CONFIG,
         icon="mdi:map-marker",
         device_types=frozenset({0x69}),
-        coordinator_method="async_set_umweltsensor_number",
+        coordinator_method="async_set_umweltsensor_longitude",
+        channel_filter="00",
     ),
     DuoFernNumberDescription(
         key="timezone",
@@ -305,7 +314,61 @@ NUMBER_DESCRIPTIONS: tuple[DuoFernNumberDescription, ...] = (
         entity_category=EntityCategory.CONFIG,
         icon="mdi:clock-outline",
         device_types=frozenset({0x69}),
-        coordinator_method="async_set_umweltsensor_number",
+        coordinator_method="async_set_umweltsensor_timezone",
+        channel_filter="00",
+    ),
+    # --- Umweltsensor channel "01" (actor): position and running time ---
+    # From 30_DUOFERN.pm %setsDefaultRollerShutter inherited by channel "01":
+    #   sunPosition:slider,0,1,100 + ventilatingPosition:slider,0,1,100
+    # Same commands as other format-23a covers (async_set_sun_position /
+    # async_set_ventilating_position), addressed to the actor sub-device.
+    DuoFernNumberDescription(
+        key="sunPosition_umwelt01",
+        translation_key="sun_position",
+        reading_key="sunPosition",
+        name="Sun Position",
+        native_min_value=0,
+        native_max_value=100,
+        native_step=1,
+        native_unit_of_measurement="%",
+        entity_category=EntityCategory.CONFIG,
+        icon="mdi:sun-angle",
+        device_types=frozenset({0x69}),
+        coordinator_method="async_set_sun_position",
+        channel_filter="01",
+    ),
+    DuoFernNumberDescription(
+        key="ventilatingPosition_umwelt01",
+        translation_key="ventilating_position",
+        reading_key="ventilatingPosition",
+        name="Ventilating Position",
+        native_min_value=0,
+        native_max_value=100,
+        native_step=1,
+        native_unit_of_measurement="%",
+        entity_category=EntityCategory.CONFIG,
+        icon="mdi:air-filter",
+        device_types=frozenset({0x69}),
+        coordinator_method="async_set_ventilating_position",
+        channel_filter="01",
+    ),
+    # --- Umweltsensor channel "01" (actor): running time ---
+    # From 30_DUOFERN.pm %setsUmweltsensor01: runningTime:slider,0,1,100
+    # Same command as Troll covers (async_set_running_time).
+    DuoFernNumberDescription(
+        key="runningTime_umwelt",
+        translation_key="running_time_cover",
+        reading_key="runningTime",
+        name="Running Time",
+        native_min_value=0,
+        native_max_value=100,
+        native_step=1,
+        native_unit_of_measurement="s",
+        entity_category=EntityCategory.CONFIG,
+        icon="mdi:timer-settings",
+        device_types=frozenset({0x69}),
+        coordinator_method="async_set_running_time",
+        channel_filter="01",
     ),
     # --- HSA: sending interval ---
     DuoFernNumberDescription(
@@ -353,9 +416,16 @@ async def async_setup_entry(
         dev_type = device_state.device_code.device_type
         for desc in NUMBER_DESCRIPTIONS:
             if dev_type in desc.device_types:
-                entities.append(
-                    DuoFernNumber(coordinator, device_state, hex_code, desc)
-                )
+                # channel_filter=None → no restriction (all existing descriptions).
+                # channel_filter set → only create for the matching sub-channel.
+                # Used for 0x69 Umweltsensor only; no other device type is affected.
+                if (
+                    desc.channel_filter is None
+                    or device_state.channel == desc.channel_filter
+                ):
+                    entities.append(
+                        DuoFernNumber(coordinator, device_state, hex_code, desc)
+                    )
 
     # Register this platform's unique_ids centrally so __init__.py can
     # remove stale entities from previous integration versions.

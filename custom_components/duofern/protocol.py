@@ -1215,6 +1215,21 @@ class DuoFernDecoder:
         if device_code.device_type in (0x61, 0x70, 0x71):
             chan_hex = "01"
 
+        event_name = spec["name"]
+        state = spec.get("state")
+
+        # FHEM 30_DUOFERN.pm (line ~1349):
+        #   if($code =~ m/^(AC)..../ && substr($msg, 14, 2) eq "FE") {
+        #       readingsSingleUpdate($hash, "state", "tilted", 1);
+        #       $state = "tilted";
+        #   }
+        # substr($msg, 14, 2) is frame byte 7 (char_index / 2 = 7).
+        # For the AC Fenster-Tuer-Kontakt this overrides opened/closed
+        # whenever byte 7 == 0xFE, regardless of the 0723/0724 msg id.
+        if device_code.device_type == 0xAC and frame[7] == 0xFE:
+            event_name = "tilted"
+            state = "tilted"
+
         return SensorEvent(
             device_code=device_code.hex,
             channel=chan_hex,
@@ -1242,6 +1257,202 @@ class DuoFernDecoder:
         wind_raw = (frame[11] << 8) | frame[12]
         w.wind = (wind_raw & 0x03FF) / 10.0
         return w
+
+    @staticmethod
+    def parse_weather_config_register(
+        data: bytes | bytearray | str,
+    ) -> tuple[int, str]:
+        """Extract register index and raw payload from a config frame.
+
+        From 30_DUOFERN.pm: #Umweltsensor Konfiguration
+          my $reg    = substr($msg, 6, 2) - 21;   # byte 3 - 0x21 → 0-7
+          my $regVal = substr($msg, 8, 20);        # bytes 4-13, 20 hex chars
+
+        Returns (register_index 0-7, 20-char upper-case hex string).
+        """
+        frame = DuoFernDecoder._ensure_bytes(data)
+        reg_index = frame[3] - 0x21
+        reg_data = frame[4:14].hex().upper()
+        return reg_index, reg_data
+
+    @staticmethod
+    def parse_time_frame(data: bytes | bytearray | str) -> dict[str, str]:
+        """Parse Umweltsensor Zeit frame (0F..1020...) into date/time strings.
+
+        From 30_DUOFERN.pm: #Umweltsensor/Handzentrale Zeit
+          $msg =~ m/0F..1020.{36}/
+          $year   = substr($msg, 12, 2)  → frame byte 6
+          $month  = substr($msg, 14, 2)  → frame byte 7
+          # byte 8 = weekday (skipped in FHEM)
+          $day    = substr($msg, 18, 2)  → frame byte 9
+          $hour   = substr($msg, 20, 2)  → frame byte 10
+          $minute = substr($msg, 22, 2)  → frame byte 11
+          $second = substr($msg, 24, 2)  → frame byte 12
+
+        Values are BCD-encoded: the device stores decimal digits as their hex
+        representation (year 2026 → byte 0x26). FHEM reads them as 2-char hex
+        strings and concatenates directly, so we format with {:02X} to match:
+          date → "20{year:02X}-{month:02X}-{day:02X}"   e.g. "2026-07-30"
+          time → "{hour:02X}:{minute:02X}:{second:02X}" e.g. "15:30:00"
+        """
+        frame = DuoFernDecoder._ensure_bytes(data)
+        return {
+            "date": f"20{frame[6]:02X}-{frame[7]:02X}-{frame[9]:02X}",
+            "time": f"{frame[10]:02X}:{frame[11]:02X}:{frame[12]:02X}",
+        }
+
+    @staticmethod
+    def decode_weather_config(registers: dict[int, str]) -> dict[str, object]:
+        """Decode all Umweltsensor config register pages into named readings.
+
+        Translated from DUOFERN_DecodeWeatherSensorConfig() in 30_DUOFERN.pm.
+
+        registers: {index 0-7: 20-char hex string}
+        Missing pages default to "0" * 20 (same as FHEM's ReadingsVal default).
+        Returns a readings dict suitable for merging into status.readings.
+
+        Register layout (each register = 10 bytes = 20 hex chars):
+          reg6 byte 0     bit 7      — triggerRain enable
+          reg6 bytes 0-4            — triggerWind (5 channels, bit 5 = enable,
+                                      bits 4-0 = threshold in m/s)
+          reg6 bytes 5-9            — triggerTemperature (5 channels, bit 7 = enable,
+                                      bits 6-0 = (value + 40) in °C)
+          regs 0-2 (partial)        — triggerDawn / triggerDusk (5 channels × 32-bit)
+          regs 3-5                  — triggerSun / triggerSunDir / triggerSunHeight
+                                      (5 channels, complex bit fields)
+          reg7 byte 0  bits 7/6-0   — interval enable + value (minutes)
+          reg7 byte 1  bit 1        — DCF enable
+          reg7 byte 4               — timezone offset
+          reg7 byte 5               — latitude (signed: subtract 256 if > 127)
+          reg7 byte 7               — longitude (signed: subtract 256 if > 127)
+        """
+        DEFAULT = "0" * 20
+        regs = [registers.get(i, DEFAULT) for i in range(8)]
+
+        def _b(reg: str, byte_index: int) -> int:
+            """Read one byte (as int) from a 20-char hex register string."""
+            off = byte_index * 2
+            return int(reg[off : off + 2], 16)
+
+        result: dict[str, object] = {}
+
+        # ── Register 7: basic config ─────────────────────────────────────────
+        # interval: hex(substr($regs[7], 0, 2)) & 0x80 ? (& 0x7F) : "off"
+        r7b0 = _b(regs[7], 0)
+        result["interval"] = str(r7b0 & 0x7F) if (r7b0 & 0x80) else "off"
+        # DCF: hex(substr($regs[7], 2, 2)) & 0x02
+        result["DCF"] = "on" if (_b(regs[7], 1) & 0x02) else "off"
+        # timezone: hex(substr($regs[7], 8, 2))  → byte 4
+        result["timezone"] = _b(regs[7], 4)
+        # latitude: hex(substr($regs[7], 10, 2)) → byte 5, signed
+        lat = _b(regs[7], 5)
+        result["latitude"] = lat - 256 if lat > 127 else lat
+        # longitude: hex(substr($regs[7], 14, 2)) → byte 7, signed
+        lon = _b(regs[7], 7)
+        result["longitude"] = lon - 256 if lon > 127 else lon
+
+        # ── Register 6: triggerRain + wind + temperature thresholds ──────────
+        # triggerRain: hex(substr($regs[6], 0, 2)) & 0x80
+        result["triggerRain"] = "on" if (_b(regs[6], 0) & 0x80) else "off"
+
+        # @tWind: bytes 0-4 of reg6
+        # $tWind[$x] = ($tWind[$x] & 0x20 ? ($tWind[$x] & 0x1F) : "off")
+        wind_vals: list[str] = []
+        for x in range(5):
+            v = _b(regs[6], x)
+            wind_vals.append(str(v & 0x1F) if (v & 0x20) else "off")
+        result["triggerWind"] = " ".join(wind_vals)
+
+        # @tTemp: bytes 5-9 of reg6
+        # $tTemp[$x] = ($tTemp[$x] & 0x80 ? ($tTemp[$x] & 0x7F) - 40 : "off")
+        temp_vals: list[str] = []
+        for x in range(5):
+            v = _b(regs[6], 5 + x)
+            temp_vals.append(str((v & 0x7F) - 40) if (v & 0x80) else "off")
+        result["triggerTemperature"] = " ".join(temp_vals)
+
+        # ── Registers 0-2: triggerDawn / triggerDusk ─────────────────────────
+        # @duskDawn = unpack '(A8)*', substr($regs[0],0,16)
+        #                           . substr($regs[1],0,16)
+        #                           . substr($regs[2],0,8)
+        # → 5 × 32-bit (8 hex chars) values
+        dd_hex = regs[0][0:16] + regs[1][0:16] + regs[2][0:8]
+        dawn_vals: list[str] = []
+        dusk_vals: list[str] = []
+        for x in range(5):
+            dd = int(dd_hex[x * 8 : (x + 1) * 8], 16)
+            # $tDawn[$x] = ($duskDawn[$x] & 0x7F) + 1
+            dawn = (dd & 0x7F) + 1
+            # $tDusk[$x] = (($duskDawn[$x] >> 14) & 0x7F) + 1
+            dusk = ((dd >> 14) & 0x7F) + 1
+            # "off" when enable bits (28-29) are clear
+            dawn_vals.append(str(dawn) if (dd >> 28) & 0x1 else "off")
+            dusk_vals.append(str(dusk) if (dd >> 28) & 0x2 else "off")
+        result["triggerDawn"] = " ".join(dawn_vals)
+        result["triggerDusk"] = " ".join(dusk_vals)
+
+        # ── Registers 3-5: triggerSun / triggerSunDirection / triggerSunHeight
+        # 60-char string; each of 5 channels occupies a 10-char block:
+        #   chars base+0..+7  → tSun[x]       (A8, 4 bytes)
+        #   chars base+8..+9  → tSunDir[x]    (x8 skip then A2 from block start)
+        #   chars base+6..+7  → tSunHeight[x] (x6 skip then A2 from block start)
+        sun_hex = regs[3] + regs[4] + regs[5]
+        sun_vals: list[str] = []
+        dir_vals: list[str] = []
+        height_vals: list[str] = []
+        for x in range(5):
+            base = x * 10
+            t_sun = int(sun_hex[base : base + 8], 16)
+            t_dir = int(sun_hex[base + 8 : base + 10], 16)
+            t_hgt = int(sun_hex[base + 6 : base + 8], 16)
+
+            # tSun: enabled when bit 29 set
+            if (t_sun >> 28) & 0x2:
+                parts = [
+                    str(((t_sun >> 12) & 0x7F) + 1),
+                    str(((t_sun >> 19) & 0x1F) + 1),
+                    str(((t_sun >> 24) & 0x1F) + 1),
+                ]
+                if t_sun & 0x40:
+                    parts.append(str(((t_sun >> 7) & 0x1F) - 5))
+                sun_vals.append(":".join(parts))
+            else:
+                sun_vals.append("off")
+
+            # tSunDir: enabled when bits 4-6 of byte non-zero
+            #
+            # FHEM's source formula is angle = (center - width) * 22.5, but
+            # this was empirically found to be off by a constant +45° against
+            # a real Umweltsensor device (confirmed with 3 independent data
+            # points from real getConfig reads vs. the value set in Homepilot
+            # at that exact moment):
+            #   Homepilot 45.0°  <-> raw byte gave 0.0°   (FHEM formula) / 45.0° (corrected)
+            #   Homepilot 22.5°  <-> raw byte gave -22.5° (FHEM formula) / 22.5° (corrected)
+            #   Homepilot 67.5°  <-> raw byte gave 22.5°  (FHEM formula) / 67.5° (corrected)
+            # All 3 were captured with width=90° (width_idx=2); the correction
+            # has not been confirmed at other width settings, so if it turns
+            # out to be width-dependent rather than a flat +45°, this may
+            # need revisiting.
+            if (t_dir >> 4) & 0x07:
+                center = t_dir & 0x0F
+                width = (t_dir >> 4) & 0x07
+                dir_vals.append(f"{(center - width) * 22.5 + 45}:{width * 45}")
+            else:
+                dir_vals.append("off")
+
+            # tSunHeight: enabled when bits 3-5 of byte non-zero
+            if (t_hgt >> 3) & 0x07:
+                low = t_hgt & 0x07
+                width = (t_hgt >> 3) & 0x03
+                height_vals.append(f"{(low - width) * 13}:{width * 26}")
+            else:
+                height_vals.append("off")
+
+        result["triggerSun"] = " ".join(sun_vals)
+        result["triggerSunDirection"] = " ".join(dir_vals)
+        result["triggerSunHeight"] = " ".join(height_vals)
+
+        return result
 
     @staticmethod
     def parse_battery_status(data: bytes | bytearray | str) -> dict[str, object]:

@@ -58,7 +58,7 @@ Forked from @MSchenkl and extensively rewritten to aim for a complete re-impleme
 | Bewegungsmelder | `0x65` | `binary_sensor` | ❌ |
 | Rauchmelder | `0xAB` | `binary_sensor` | ✅ |
 | Fenster-Tür-Kontakt | `0xAC` | `binary_sensor` | ✅ |
-| Umweltsensor | `0x69` | `sensor` | ❌ |
+| Umweltsensor | `0x69` | `sensor`, `binary_sensor`, `number`, `select`, `switch`, `text`, `button` | ✅ |
 | Sonnensensor | `0xA5` | `binary_sensor` | ✅ |
 | Sonnensensor (alt) | `0xAF` | `binary_sensor` | ❌ |
 | Sonnen-/Windsensor | `0xA9` | `binary_sensor` | ❌ |
@@ -181,9 +181,13 @@ Environmental sensor devices expose one or two binary sensor entities depending 
 
 Sun and wind sensor states are preserved across HA restarts via `RestoreEntity`.
 
-### Sensor Entities (Weather Station — Umweltsensor 0x69)
+### Weather Station Entities (Umweltsensor 0x69)
 
-One sensor entity per measurement:
+The Umweltsensor exposes two sub-devices: the weather station sub-channel ("00", read-only sensors + config) and the actor sub-channel ("01", a Rohrmotor/Troll-style output driven by the wind/rain/sun/dusk/dawn triggers).
+
+#### Sub-Channel "00" — Weather Station
+
+One sensor entity per measurement, updated from the weather frame:
 
 | Sensor | Unit | Device Class |
 |--------|------|-------------|
@@ -192,6 +196,33 @@ One sensor entity per measurement:
 | Wind Speed | m/s | `wind_speed` |
 | Sun Direction (Sonnenrichtung) | ° | — |
 | Sun Height (Sonnenhöhe) | ° | — |
+
+- **Rain Detected** — `moisture` binary sensor. Updated from the `isRaining` bit in every weather frame and reacts instantly to `startRain`/`endRain` device events. State survives HA restarts.
+- **Device Date / Device Time** — diagnostic sensors populated by pressing the **Get Time** button; reflect the Umweltsensor's own internal clock.
+- **Buttons** — **Get Weather**, **Get Time**, **Get Config**, **Write Config**, **Set Time** (pushes the current HA time to the device).
+
+Config entities (read via **Get Config**, written to the device via the **Write Config** button):
+
+| Entity | Type | Description |
+|--------|------|-------------|
+| Transmit Interval | Select | How often the device sends weather frames, or "off" |
+| DCF Time Sync | Switch | Enable/disable DCF77 time synchronisation |
+| Trigger Rain | Switch | Enable/disable the rain trigger |
+| Latitude / Longitude | Number | Location used for sun position calculation |
+| Timezone Offset | Number | Timezone offset (0–23) used for sun calculations |
+| Wind / Temperature / Dawn / Dusk / Sun / Sun Direction / Sun Height Triggers | Text | 5-channel trigger thresholds, space-separated in FHEM's native format (e.g. `off 15 off off off`) |
+
+#### Sub-Channel "01" — Actor
+
+Behaves like a Rohrmotor/Troll cover output, driven by the sub-channel "00" triggers:
+
+| Entity | Type | Description |
+|--------|------|-------------|
+| Running Time | Number | Motor running time (0–100 s) |
+| Sun Position / Ventilating Position | Number | Target positions (0–100 %) |
+| Wind Direction / Rain Direction | Select | Movement direction (`up`/`down`) on wind/rain trigger |
+| Wind Automatic / Rain Automatic / Wind Mode / Rain Mode / Reversal | Switch | Wind/rain automation flags |
+| Manual Mode / Time Automatic / Dawn Automatic / Dusk Automatic / Sun Automatic / Sun Mode / Ventilating Mode | Switch | Standard cover automation flags |
 
 ### Stick Control Buttons
 

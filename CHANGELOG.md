@@ -1,5 +1,35 @@
 # Changelog
 
+## [v2.3.1] — 2026-08-01
+
+- **Known limitation** — Umweltsensor device communication (reading/writing config registers) works correctly, but the GUI/entity presentation for its config is still rough and is being improved.
+
+- **Device date/time sensors** — two new diagnostic sensors, "Device Date" and "Device Time", are populated on the Umweltsensor's "00" sub-channel when the **Get Time** button is pressed. Decoded from the BCD-encoded Zeit response frame (`0F..1020…`), translated from `30_DUOFERN.pm`.
+
+- **Full config register writes for latitude/longitude/timezone/DCF/rain trigger** — these previously used a stub (`async_set_umweltsensor_number`) that only logged the value, or stored plain reading strings that were never encoded into the registers `writeConfig` actually sends. They now write directly into the correct register bits (`weather_config_registers`), matching the `%wCmds` bit layout in `30_DUOFERN.pm`.
+
+- **`writeConfig` rewritten** — now reads from the per-channel `weather_config_registers` store on the "00" sub-channel (previously read stale `.reg0`–`.reg7` readings from the bare device code), with per-register length validation before sending.
+
+- **7 new trigger-threshold text entities** — Wind, Temperature, Dawn, Dusk, Sun, Sun Direction, and Sun Height Triggers are now exposed as space-separated 5-channel text fields on channel "00", matching FHEM's native input format (e.g. `off 15 off off off`). Values are encoded straight into the config registers and pushed to the device via the writeConfig button.
+
+- **Batched register updates** — new `_raw_update_reg_byte`/`_raw_update_reg_word32` + `_flush_weather_config` helpers let the 5-channel trigger setters update all bytes in memory first and fire a single coordinator/HA notification, instead of one per channel.
+
+- **Umweltsensor actor sub-channel ("01") gains cover-style entities** — Sun Position and Ventilating Position numbers, plus Manual Mode, Time Automatic, Dawn Automatic, Dusk Automatic, Sun Automatic, Sun Mode, and Ventilating Mode automation switches, since the actor sub-channel behaves like a Rohrmotor/Troll cover.
+
+- **Window/door contact sensor** — tilted position now working.
+
+## [v2.3.0] — 2026-07-29
+
+- **Rain binary sensor for Umweltsensor (0x69)** — a new `moisture` binary sensor ("Rain Detected") is created on the weather station sub-channel ("00"). It updates from the `isRaining` bit decoded in every ~1-minute weather frame and reacts instantly to `startRain`/`endRain` coordinator events. Last known state is restored across HA restarts.
+
+- **Weather config register decode** — the coordinator now handles `getConfig` responses (`0FFF1B2[1-8]`). The device's 8 config register pages are accumulated and decoded after each arrival (translated from `DUOFERN_DecodeWeatherSensorConfig()` in `30_DUOFERN.pm`). Decoded values (interval, DCF, timezone, latitude, longitude, triggerRain/Wind/Temperature/Dawn/Dusk/Sun) land on the "00" sub-channel and immediately populate the corresponding config entities.
+
+- **Actor sub-channel ("01") entities** — the Umweltsensor actor now has its own entity set matching `%setsUmweltsensor01`: Running Time number (0–100 s), Wind Direction / Rain Direction selects, and Wind Automatic / Rain Automatic / Wind Mode / Rain Mode / Reversal switches.
+
+- **Channel separation (channel_filter)** — a `channel_filter` field was added to `DuoFernNumberDescription`, `DuoFernSelectDescription`, and `DuoFernAutomationSwitchDescription`. Umweltsensor config entities are now pinned to "00" and actor entities to "01", eliminating duplicates that previously appeared on both sub-channels.
+
+- **Fix rain event channel** — `startRain` / `endRain` events from `_handle_weather_data()` were emitting `device_code = bare_hex` with `channel = "01"`. Corrected to `device_code = bare_hex + "00"` with `channel = "00"` so the rain binary sensor matches its own hex_code.
+
 ## [v2.2.9] — 2026-07-29
 
 - **Fix Umweltsensor (0x69) weather readings and battery status** — battery level from sub-channel devices and weather data from Umweltsensor devices were being dropped because the coordinator looked them up under the bare device code instead of the channel-suffixed key ("00") these channel devices actually use. Weather data is now correctly matched to the "00" sub-channel, battery status is mirrored onto all of a channel device's sub-channels, and dead sensor entities are no longer created on the Umweltsensor's actor sub-channel ("01").

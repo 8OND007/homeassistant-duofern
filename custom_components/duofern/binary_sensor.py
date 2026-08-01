@@ -202,6 +202,26 @@ async def async_setup_entry(
                 hex_code,
             )
 
+        # Rain binary sensor for Umweltsensor 0x69 channel "00" (weather station).
+        # isRaining is the bit 15 of the temp_raw word in every weather frame
+        # (0F..1322), decoded by parse_weather_data() and stored in
+        # status.readings["isRaining"] on channel "00" by _handle_weather_data().
+        # The entity reads the reading via _handle_coordinator_update() and also
+        # subscribes to startRain/endRain events fired by _handle_weather_data()
+        # for instant response (events carry device_code = hex_code, i.e. "691FC800").
+        if (
+            device_state.device_code.device_type == 0x69
+            and device_state.channel == "00"
+        ):
+            entities.append(
+                DuoFernRainBinarySensor(
+                    coordinator=coordinator,
+                    device_state=device_state,
+                    hex_code=hex_code,
+                )
+            )
+            _LOGGER.debug("Adding rain binary sensor for Umweltsensor %s", hex_code)
+
         # Sun sensor for 0x61 RolloTron Comfort Master (built-in brightness sensor).
         # The cover entity is already registered by cover.py; this binary sensor
         # attaches to the same device via shared identifiers={(DOMAIN, hex_code)}.
@@ -787,5 +807,102 @@ class DuoFernEnvBinarySensor(
             self._is_on = True
             self.async_write_ha_state()
         elif event_name == self._event_off:
+            self._is_on = False
+            self.async_write_ha_state()
+
+
+# ---------------------------------------------------------------------------
+# Rain binary sensor — Umweltsensor 0x69 channel "00"
+# ---------------------------------------------------------------------------
+
+
+class DuoFernRainBinarySensor(
+    CoordinatorEntity[DuoFernCoordinator], BinarySensorEntity, RestoreEntity
+):
+    """Binary sensor: is it currently raining? (Umweltsensor 0x69 channel "00").
+
+    Two update paths:
+      1. Coordinator push — _handle_coordinator_update() reads
+         status.readings["isRaining"] which is updated on every weather frame
+         (~1 min interval, decoded from bit 15 of the temp_raw word).
+      2. Event bus — startRain / endRain events fired by _handle_weather_data()
+         for instant state changes between coordinator pushes.
+         Events carry device_code = hex_code ("691FC800"), channel = "00".
+
+    From 30_DUOFERN.pm: #Umweltsensor Wetter
+      $isRaining = (hex(substr($msg, 18, 4)) & 0x8000 ? 1 : 0)
+      readingsBulkUpdate($hash, "isRaining", $isRaining, 1)
+    Threshold-based sensorMsg events (0711 startRain / 0712 endRain) are a
+    separate mechanism and can be layered on top in a future enhancement.
+    """
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "rain_detected"
+    _attr_device_class = BinarySensorDeviceClass.MOISTURE
+    _attr_icon = "mdi:weather-rainy"
+
+    def __init__(
+        self,
+        coordinator: DuoFernCoordinator,
+        device_state: DuoFernDeviceState,
+        hex_code: str,
+    ) -> None:
+        super().__init__(coordinator)
+        self._hex_code = hex_code
+        self._device_code = device_state.device_code
+        self._attr_unique_id = f"{DOMAIN}_{hex_code}_rain_detected"
+        self._attr_device_info = DeviceInfo(identifiers={(DOMAIN, hex_code)})
+        # Default False — sensor should show "dry" not "unknown" before first frame.
+        self._is_on: bool = False
+
+    async def async_added_to_hass(self) -> None:
+        """Restore last known rain state and subscribe to events."""
+        await super().async_added_to_hass()
+        last_state = await self.async_get_last_state()
+        if last_state and last_state.state not in ("unknown", "unavailable"):
+            self._is_on = last_state.state == "on"
+        self.async_on_remove(
+            self.hass.bus.async_listen(DUOFERN_EVENT, self._handle_duofern_event)
+        )
+
+    @property
+    def _device_state(self) -> DuoFernDeviceState | None:
+        if self.coordinator.data is None:
+            return None
+        return self.coordinator.data.devices.get(self._hex_code)
+
+    @property
+    def available(self) -> bool:
+        return self._device_state is not None
+
+    @property
+    def is_on(self) -> bool:
+        return self._is_on
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Update from weather frame (isRaining bit decoded by parse_weather_data)."""
+        state = self._device_state
+        if state is not None:
+            val = state.status.readings.get("isRaining")
+            if val is not None:
+                self._is_on = bool(val)
+        self.async_write_ha_state()
+
+    @callback
+    def _handle_duofern_event(self, event: Event) -> None:
+        """Update from startRain/endRain events (fired by _handle_weather_data).
+
+        Events carry device_code = self._hex_code ("691FC800") and channel "00",
+        set in coordinator._handle_weather_data() after our channel fix.
+        """
+        data = event.data
+        if data.get("device_code") != self._hex_code:
+            return
+        event_name: str = data.get("event", "")
+        if event_name == "startRain":
+            self._is_on = True
+            self.async_write_ha_state()
+        elif event_name == "endRain":
             self._is_on = False
             self.async_write_ha_state()
