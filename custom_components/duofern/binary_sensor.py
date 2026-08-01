@@ -278,6 +278,13 @@ async def async_setup_entry(
                 device_state.device_code.device_type,
             )
 
+        # Umweltsensor (0x69) channel "00": Sun/Wind/Temperature trigger
+        # sensors moved to sensor.py as DuoFernActiveGrenzwerteSensor —
+        # instead of a plain on/off boolean, they report WHICH of the up to
+        # 5 configured Grenzwerte (trigger slots) are currently active, since
+        # 30_DUOFERN.pm's sensorMsg channel byte is a 5-bit bitmask of
+        # triggered slots, not a device channel. See sensor.py for details.
+
     # Register this platform's unique_ids centrally so __init__.py can
     # remove stale entities from previous integration versions.
     coordinator.data.registered_unique_ids.update(
@@ -821,19 +828,49 @@ class DuoFernRainBinarySensor(
 ):
     """Binary sensor: is it currently raining? (Umweltsensor 0x69 channel "00").
 
-    Two update paths:
-      1. Coordinator push — _handle_coordinator_update() reads
-         status.readings["isRaining"] which is updated on every weather frame
-         (~1 min interval, decoded from bit 15 of the temp_raw word).
-      2. Event bus — startRain / endRain events fired by _handle_weather_data()
-         for instant state changes between coordinator pushes.
-         Events carry device_code = hex_code ("691FC800"), channel = "00".
+    Two independent signal sources, combined with OR:
 
-    From 30_DUOFERN.pm: #Umweltsensor Wetter
-      $isRaining = (hex(substr($msg, 18, 4)) & 0x8000 ? 1 : 0)
-      readingsBulkUpdate($hash, "isRaining", $isRaining, 1)
-    Threshold-based sensorMsg events (0711 startRain / 0712 endRain) are a
-    separate mechanism and can be layered on top in a future enhancement.
+      1. Continuous weather-frame bit — _handle_coordinator_update() reads
+         status.readings["isRaining"], updated on every weather frame
+         (~1 min interval, decoded from bit 15 of the temp_raw word).
+         From 30_DUOFERN.pm: #Umweltsensor Wetter
+           $isRaining = (hex(substr($msg, 18, 4)) & 0x8000 ? 1 : 0)
+
+      2. sensorMsg threshold events (0711 startRain / 0712 endRain) —
+         _handle_duofern_event() decodes the event's "channel" field as a
+         5-bit Grenzwert bitmask, same mechanism as Sun/Wind/Temperature
+         (see DuoFernActiveGrenzwerteSensor in sensor.py and FHEM
+         30_DUOFERN.pm line ~1309-1320). Homepilot's own "Regen" screen only
+         ever shows a single Ein/Aus toggle (no Grenzwert 1-5 list like
+         Sun/Wind/Temp/Dawn/Dusk have), so in practice this bitmask likely
+         only ever uses bit 0 — but it's decoded properly (not just a naive
+         "any startRain event means on" toggle) so a multi-bit frame, if the
+         device ever sends one, doesn't leave the sensor stuck in the wrong
+         state after a partial endRain.
+
+    Weather-frame-driven startRain/endRain events (fired by
+    _handle_weather_data with channel="00" literally) are deliberately NOT
+    handled in _handle_duofern_event below — decoding "00" as a bitmask
+    correctly yields 0 (FHEM: channel byte "00" is not a bitmask, ignored),
+    so those events are naturally skipped here. This causes no loss of
+    responsiveness: _handle_weather_data calls async_set_updated_data()
+    synchronously right after firing that event, so
+    _handle_coordinator_update() already picks up the same change via the
+    direct readings path at essentially the same time.
+
+    NOT verified against a real device: no 0711/0712 frame has been
+    captured from a real Umweltsensor yet, so the sensorMsg path (2) is
+    based on the FHEM source and the same reasoning already verified for
+    Sun/Wind/Temp, not on a real captured rain-trigger frame specifically.
+
+    IMPORTANT — self-correcting design: because path (2) is unverified,
+    it must never be able to permanently override path (1). If a startRain
+    sensorMsg sets a bit but the matching endRain never arrives for any
+    reason, source (2) alone would get stuck reporting rain forever.
+    _handle_coordinator_update() prevents this: whenever the verified
+    weather-frame bit reports isRaining=False, it forcibly clears any
+    sensor_msg_bits too. The verified source always wins, bounding any
+    possible stuck-ON state to at most one weather-frame interval.
     """
 
     _attr_has_entity_name = True
@@ -852,15 +889,21 @@ class DuoFernRainBinarySensor(
         self._device_code = device_state.device_code
         self._attr_unique_id = f"{DOMAIN}_{hex_code}_rain_detected"
         self._attr_device_info = DeviceInfo(identifiers={(DOMAIN, hex_code)})
-        # Default False — sensor should show "dry" not "unknown" before first frame.
-        self._is_on: bool = False
+        # Two independent sources, combined via OR in is_on. Both default to
+        # "no rain" rather than "unknown" so the entity shows a sensible
+        # state before the first frame of either kind arrives.
+        self._weather_bit: bool = False
+        self._sensor_msg_bits: set[int] = set()
 
     async def async_added_to_hass(self) -> None:
         """Restore last known rain state and subscribe to events."""
         await super().async_added_to_hass()
         last_state = await self.async_get_last_state()
         if last_state and last_state.state not in ("unknown", "unavailable"):
-            self._is_on = last_state.state == "on"
+            # Restored as the weather-bit component; sensorMsg bits start
+            # empty and get repopulated by live events after restart, same
+            # as the active-Grenzwerte sensors.
+            self._weather_bit = last_state.state == "on"
         self.async_on_remove(
             self.hass.bus.async_listen(DUOFERN_EVENT, self._handle_duofern_event)
         )
@@ -877,32 +920,72 @@ class DuoFernRainBinarySensor(
 
     @property
     def is_on(self) -> bool:
-        return self._is_on
+        return self._weather_bit or bool(self._sensor_msg_bits)
 
     @callback
     def _handle_coordinator_update(self) -> None:
-        """Update from weather frame (isRaining bit decoded by parse_weather_data)."""
+        """Update from weather frame (isRaining bit decoded by parse_weather_data).
+
+        The weather-frame bit is the ONLY signal verified against a real
+        device (see class docstring); the sensorMsg bitmask path (2) is not.
+        If a startRain sensorMsg event ever sets a bit but the matching
+        endRain never arrives — device doesn't send it, our channel-fix
+        assumption for 0x69 turns out wrong, or any other unverified-path
+        issue — sensor_msg_bits would otherwise stay populated forever and
+        permanently stick this entity on "raining" even after the verified
+        continuous signal correctly reports rain has stopped. To prevent
+        that: whenever the weather frame reports isRaining=False, clear
+        sensor_msg_bits too, so the verified source always wins and this
+        entity can never get stuck ON for longer than one weather-frame
+        interval (~1 min by default).
+        """
         state = self._device_state
         if state is not None:
             val = state.status.readings.get("isRaining")
             if val is not None:
-                self._is_on = bool(val)
+                self._weather_bit = bool(val)
+                if not self._weather_bit and self._sensor_msg_bits:
+                    _LOGGER.debug(
+                        "%s: weather frame reports no rain — clearing stale "
+                        "sensorMsg bits %s",
+                        self._attr_unique_id,
+                        self._sensor_msg_bits,
+                    )
+                    self._sensor_msg_bits = set()
         self.async_write_ha_state()
 
     @callback
     def _handle_duofern_event(self, event: Event) -> None:
-        """Update from startRain/endRain events (fired by _handle_weather_data).
+        """Update from sensorMsg startRain/endRain (0711/0712) Grenzwert events.
 
-        Events carry device_code = self._hex_code ("691FC800") and channel "00",
-        set in coordinator._handle_weather_data() after our channel fix.
+        The "channel" field is a 5-bit Grenzwert bitmask (see class
+        docstring), not a device channel. A raw value of 0 — which is what
+        the weather-frame-driven startRain/endRain events carry
+        (channel="00" literally) — is not a valid bitmask per FHEM and is
+        skipped here; that source is handled entirely by
+        _handle_coordinator_update() instead.
         """
         data = event.data
         if data.get("device_code") != self._hex_code:
             return
         event_name: str = data.get("event", "")
+        if event_name not in ("startRain", "endRain"):
+            return
+
+        chan_hex = data.get("channel", "00")
+        try:
+            raw = int(chan_hex, 16)
+        except (TypeError, ValueError):
+            _LOGGER.debug(
+                "%s: could not parse channel bitmask %r", self._attr_unique_id, chan_hex
+            )
+            return
+        if raw == 0:
+            return
+
+        bits = {x + 1 for x in range(5) if (1 << x) & raw}
         if event_name == "startRain":
-            self._is_on = True
-            self.async_write_ha_state()
-        elif event_name == "endRain":
-            self._is_on = False
-            self.async_write_ha_state()
+            self._sensor_msg_bits |= bits
+        else:
+            self._sensor_msg_bits -= bits
+        self.async_write_ha_state()

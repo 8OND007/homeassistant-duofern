@@ -42,7 +42,7 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.const import EntityCategory, UnitOfTemperature
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -52,7 +52,7 @@ from homeassistant.util import dt as dt_util
 
 from . import DuoFernConfigEntry
 from .const import DOMAIN
-from .coordinator import DuoFernCoordinator, DuoFernDeviceState
+from .coordinator import DUOFERN_EVENT, DuoFernCoordinator, DuoFernDeviceState
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -207,6 +207,39 @@ async def async_setup_entry(
                 _LOGGER.debug(
                     "Adding string sensor entity %s for device %s",
                     description.key,
+                    hex_code,
+                )
+
+        # Active-Grenzwerte sensors (Sonne/Wind/Temperatur) — Umweltsensor
+        # channel "00" only. Report WHICH of up to 5 configured trigger slots
+        # are currently active, decoded from the sensorMsg channel bitmask.
+        # See DuoFernActiveGrenzwerteSensor docstring for the full FHEM
+        # source reference and the "no real device confirmation yet" caveat.
+        if dev_code.device_type == 0x69 and device_state.channel == "00":
+            for event_on, event_off, translation_key, icon in (
+                ("startSun", "endSun", "sun_grenzwerte", "mdi:white-balance-sunny"),
+                ("startWind", "endWind", "wind_grenzwerte", "mdi:weather-windy"),
+                (
+                    "startTemp",
+                    "endTemp",
+                    "temperature_grenzwerte",
+                    "mdi:thermometer-alert",
+                ),
+            ):
+                entities.append(
+                    DuoFernActiveGrenzwerteSensor(
+                        coordinator=coordinator,
+                        device_state=device_state,
+                        hex_code=hex_code,
+                        event_on=event_on,
+                        event_off=event_off,
+                        translation_key=translation_key,
+                        icon=icon,
+                    )
+                )
+                _LOGGER.debug(
+                    "Adding active-Grenzwerte sensor %s for device %s",
+                    translation_key,
                     hex_code,
                 )
 
@@ -853,6 +886,152 @@ class DuoFernBoostStartSensor(
         if ts.tzinfo is None:
             return ts.replace(tzinfo=dt_util.DEFAULT_TIME_ZONE)
         return ts
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        self.async_write_ha_state()
+
+
+# ---------------------------------------------------------------------------
+# Active-Grenzwerte sensor — Umweltsensor 0x69 channel "00"
+# ---------------------------------------------------------------------------
+
+
+class DuoFernActiveGrenzwerteSensor(
+    CoordinatorEntity[DuoFernCoordinator], SensorEntity, RestoreEntity
+):
+    """Reports which of the up to 5 configured Grenzwerte (trigger slots)
+    are currently active for one trigger type (Sonne / Wind / Temperatur).
+
+    From 30_DUOFERN.pm sensorMsg parsing (line ~1309-1320): the channel byte
+    on a chan=5 sensorMsg frame (which covers exactly the events this class
+    listens to) is NOT a device channel — it's a 5-bit bitmask of which
+    Grenzwert(e) 1-5 are involved:
+      my $chan = substr($msg, $sensorMsg{$id}{chan}*2 + 2, 2);
+      if (($sensorMsg{$id}{chan} == 5) && ($chan ne "00")) {
+        for (my $x=0; $x<5; $x++) {
+          if ((0x01<<$x) & hex($chan)) { push(@chans, $x+1); }
+        }
+      }
+    This class decodes that same bitmask from the fired duofern_event's
+    "channel" field (set in coordinator._handle_sensor_event) and maintains
+    a persistent set of currently-active slot numbers: a startX event adds
+    the bits present to the active set, an endX event removes them. native_value
+    is the sorted, comma-joined list of active slot numbers (e.g. "1,3"), or
+    "" when none are active.
+
+    Deliberately reports a slot LIST instead of 5 separate boolean entities
+    per trigger type (15 total across Sun/Wind/Temp) to avoid entity
+    explosion — see NOTES.md for the fuller design discussion. Automations
+    that need to react to a specific Grenzwert use a template condition,
+    e.g.: {{ '3' in states('sensor.wetterstation_wind_grenzwerte').split(',') }}
+
+    NOT verified against a real device: no startSun/startWind/startTemp
+    frame has been captured from a real Umweltsensor yet, so both the
+    channel="00" redirect (see _handle_sensor_event) and this bitmask
+    decoding are based on FHEM source only, not confirmed device behavior.
+    We treat FHEM as a reliable, years-proven reference here, same as for
+    every other part of this integration — but flagging it since it's the
+    one part of the Umweltsensor implementation with zero real-device
+    confirmation so far.
+
+    Edge case: if the raw channel byte is exactly 0x00, FHEM does NOT treat
+    it as a bitmask (see the `$chan ne "00"` guard above) — the trigger slot
+    is indeterminate in that case. We skip updating the active set and log a
+    debug message rather than guessing.
+    """
+
+    _attr_has_entity_name = True
+
+    def __init__(
+        self,
+        coordinator: DuoFernCoordinator,
+        device_state: DuoFernDeviceState,
+        hex_code: str,
+        event_on: str,
+        event_off: str,
+        translation_key: str,
+        icon: str,
+    ) -> None:
+        super().__init__(coordinator)
+        self._hex_code = hex_code
+        self._device_code = device_state.device_code
+        self._event_on = event_on
+        self._event_off = event_off
+        self._attr_unique_id = f"{DOMAIN}_{hex_code}_{translation_key}"
+        self._attr_translation_key = translation_key
+        self._attr_icon = icon
+        self._attr_device_info = DeviceInfo(identifiers={(DOMAIN, hex_code)})
+        self._active_slots: set[int] = set()
+
+    async def async_added_to_hass(self) -> None:
+        """Restore last known active slots and subscribe to events."""
+        await super().async_added_to_hass()
+        last_state = await self.async_get_last_state()
+        if last_state and last_state.state not in ("unknown", "unavailable", ""):
+            try:
+                self._active_slots = {
+                    int(s) for s in last_state.state.split(",") if s.strip()
+                }
+            except ValueError:
+                self._active_slots = set()
+        self.async_on_remove(
+            self.hass.bus.async_listen(DUOFERN_EVENT, self._handle_duofern_event)
+        )
+
+    @property
+    def _device_state(self) -> DuoFernDeviceState | None:
+        if self.coordinator.data is None:
+            return None
+        return self.coordinator.data.devices.get(self._hex_code)
+
+    @property
+    def available(self) -> bool:
+        return self._device_state is not None
+
+    @property
+    def native_value(self) -> str:
+        """Sorted, comma-joined list of currently active Grenzwert numbers."""
+        return ",".join(str(n) for n in sorted(self._active_slots))
+
+    @callback
+    def _handle_duofern_event(self, event: Event) -> None:
+        """Update the active-slot set from startX/endX events.
+
+        event.data["channel"] is the raw hex byte string (e.g. "05") set by
+        coordinator._handle_sensor_event / parse_sensor_event's chan_hex —
+        decoded here as a 5-bit Grenzwert bitmask per the FHEM logic in the
+        class docstring.
+        """
+        data = event.data
+        if data.get("device_code") != self._hex_code:
+            return
+        event_name: str = data.get("event", "")
+        if event_name not in (self._event_on, self._event_off):
+            return
+
+        chan_hex = data.get("channel", "00")
+        try:
+            raw = int(chan_hex, 16)
+        except (TypeError, ValueError):
+            _LOGGER.debug(
+                "%s: could not parse channel bitmask %r", self._attr_unique_id, chan_hex
+            )
+            return
+        if raw == 0:
+            # FHEM: chan=="00" is NOT treated as a bitmask — indeterminate slot.
+            _LOGGER.debug(
+                "%s: channel byte is 0x00 — Grenzwert slot indeterminate, ignoring",
+                self._attr_unique_id,
+            )
+            return
+
+        bits = {x + 1 for x in range(5) if (1 << x) & raw}
+        if event_name == self._event_on:
+            self._active_slots |= bits
+        else:
+            self._active_slots -= bits
+        self.async_write_ha_state()
 
     @callback
     def _handle_coordinator_update(self) -> None:

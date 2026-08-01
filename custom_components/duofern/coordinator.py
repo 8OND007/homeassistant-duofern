@@ -681,6 +681,40 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
 
         From 30_DUOFERN.pm:
           #Wandtaster, Funksender UP, Handsender, Sensoren
+
+        Umweltsensor (0x69) channel: dawn/dusk/startSun/endSun/startWind/
+        endWind/startTemp/endTemp (sensorMsg 0713/0709/0708/070A/070D/070E/
+        071C/071D) are weather-station events and belong on channel "00" —
+        this is NOT an assumption, it is explicit in 30_DUOFERN.pm:
+          if($code =~ m/^(65|69|74).*/) {
+            $def01 = $modules{DUOFERN}{defptr}{$code."00"};
+            ...
+            $hash = $def01 if ($def01);
+          }
+        FHEM redirects readingsSingleUpdate calls for these three device
+        types onto the "$code.00" device object, regardless of the raw
+        channel byte in the frame. So the lookup key and fired event
+        device_code are suffixed with "00" here, mirroring the fix already
+        applied to weather/time/config frames.
+
+        Note on the frame's own channel byte (SensorEvent.channel /
+        parse_sensor_event's chan_hex): for chan=5-type sensorMsg entries
+        (all 8 listed above), FHEM does NOT treat this byte as a device
+        channel at all — it's a 5-bit BITMASK of which of the up to 5
+        configured Grenzwerte (trigger slots) fired simultaneously (FHEM
+        line ~1313-1320: bit x set → Grenzwert x+1 triggered). Our current
+        DuoFernEnvBinarySensor entities don't consult this field — they
+        fire on ANY startSun/endSun/etc. event regardless of which slot(s)
+        caused it, so this bitmask nuance doesn't affect entity correctness,
+        but would matter if per-Grenzwert entities are ever built.
+
+        Separate finding, NOT fixed here: the same FHEM line shows 0x65
+        (Bewegungsmelder) and 0x74 (Wandtaster) ALSO redirect their
+        sensorMsg readings onto a "..00" sub-device — but our DEVICE_CHANNELS
+        only registers "01" for both. This is very likely the same class of
+        bug for those two device types, left untouched here to keep this fix
+        narrowly scoped to 0x69 and avoid any regression risk for actors
+        that already work. Needs its own investigation before touching.
         """
         event = DuoFernDecoder.parse_sensor_event(frame)
         if event is None:
@@ -699,10 +733,18 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
             _dc = DuoFernId.from_hex(event.device_code)
             self._maybe_trigger_discovery(_dc)
         except Exception:
-            pass
+            _dc = None
+
+        # Umweltsensor sensorMsg events belong to the weather-station
+        # sub-channel "00" — see docstring above for the caveat.
+        lookup_hex = event.device_code
+        fired_device_code = event.device_code
+        if _dc is not None and _dc.device_type == 0x69:
+            lookup_hex = event.device_code + "00"
+            fired_device_code = event.device_code + "00"
 
         # Update last_seen
-        state = self.data.devices.get(event.device_code)
+        state = self.data.devices.get(lookup_hex)
         if state:
             state.last_seen = dt_util.now().isoformat(timespec="seconds")
 
@@ -710,7 +752,7 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
         self.hass.bus.async_fire(
             DUOFERN_EVENT,
             {
-                "device_code": event.device_code,
+                "device_code": fired_device_code,
                 "event": event.event_name,
                 "state": event.state,
                 "channel": event.channel,
