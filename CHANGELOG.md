@@ -1,5 +1,17 @@
 # Changelog
 
+## [v2.3.2] — 2026-08-01
+
+- **Umweltsensor dawn/dusk trigger events** — two new event entities ("Dawn"/"Dusk") fire on the "00" sub-channel when the device's `dawn`/`dusk` sensorMsg (0713/0709) is received. Unlike Sun/Wind/Temperature/Rain, FHEM's `30_DUOFERN.pm` has no corresponding "end" message for these two, so they're modeled as momentary `EventEntity` triggers rather than a persistent on/off sensor. The active Grenzwert slot(s) (1–5) are decoded from the event's channel bitmask and passed as extra event data.
+
+- **Active-Grenzwerte sensors for Sun/Wind/Temperature** — three new sensors per Umweltsensor report which of the up to 5 configured trigger thresholds ("Grenzwerte") are currently active, as a comma-joined list (e.g. `"1,3"`), instead of a plain boolean. Previously these were basic on/off binary sensors; `30_DUOFERN.pm` actually encodes the sensorMsg channel byte as a 5-bit bitmask of triggered slots, not a device channel, so a plain toggle couldn't represent multiple simultaneously active thresholds correctly.
+
+- **Rain binary sensor now also reacts to threshold events** — the "Rain Detected" sensor previously only read the continuous `isRaining` bit from weather frames. It now also decodes `startRain`/`endRain` sensorMsg threshold events (same Grenzwert-bitmask mechanism as above) and combines both sources with OR. The verified weather-frame bit always takes precedence: whenever it reports no rain, any threshold-event state is force-cleared too, so an unverified/missing `endRain` frame can never leave the sensor stuck on "raining" for more than one weather-frame interval (~1 min).
+
+- **Coordinator fix: Umweltsensor sensorMsg events now redirect to the "00" sub-channel** — `30_DUOFERN.pm` routes all Umweltsensor (and Wetterstation/Raumthermostat-family, device types `0x65`/`0x69`/`0x74`) sensorMsg readings onto the channel-"00" device object regardless of the frame's raw channel byte. The coordinator previously looked these events up (and fired them) under the bare device code, so they never reached the "00" sub-channel entities. Only `0x69` was fixed in this release; `0x65`/`0x74` likely have the same issue but are left untouched pending separate investigation.
+
+- **Known limitation** — the Umweltsensor dawn/dusk and active-Grenzwerte features are translated directly from `30_DUOFERN.pm` but have not yet been verified against a real device (no live 0711/0712/0713/0709/0708/070A/070D/070E/071C/071D frame has been captured to confirm the bitmask decoding).
+
 ## [v2.3.1] — 2026-08-01
 
 - **Known limitation** — Umweltsensor device communication (reading/writing config registers) works correctly, but the GUI/entity presentation for its config is still rough and is being improved.
