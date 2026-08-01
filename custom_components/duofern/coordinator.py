@@ -167,6 +167,37 @@ class DuoFernDeviceState:
     # Only set for 0x69 channel "00"; always empty for all other devices.
     weather_config_registers: dict[int, str] = field(default_factory=dict)
 
+    # --- Umweltsensor 0x69 structured trigger GUI (channel "00" only) ---
+    #
+    # Which of the up to 5 Grenzwerte (trigger slots, 1-5) is currently
+    # selected for display/editing in each trigger group. Purely a local HA
+    # UI concept — not stored on the device. One Number/Switch entity set per
+    # group reads/writes whichever slot is selected here, instead of needing
+    # 5x the entities per group. Keys: "wind", "temperature", "dawn", "dusk",
+    # "sun" (covers brightness/timing/temp-coupling, sunDirection, sunHeight
+    # together, since Homepilot's own "Sonne" screen bundles all of these
+    # under one Grenzwert selector).
+    selected_grenzwert: dict[str, int] = field(
+        default_factory=lambda: {
+            "wind": 1,
+            "temperature": 1,
+            "dawn": 1,
+            "dusk": 1,
+            "sun": 1,
+        }
+    )
+
+    # sunDirection/sunHeight have NO separate enable bit in the register —
+    # "off" is encoded as width_idx==0 within the same bits that hold the
+    # angle/width value itself (see coordinator get/set methods for these
+    # two fields). Unlike every other trigger field, the device can't
+    # remember "value while disabled" on its own, so toggling "Sonnenrichtung
+    # nutzen"/"Sonnenhöhe nutzen" off would otherwise lose the angle. This
+    # local memory preserves it across an off→on toggle. Keyed by slot
+    # (1-5), value is (angle_or_height, width) as set by the user.
+    sun_direction_memory: dict[int, tuple[float, float]] = field(default_factory=dict)
+    sun_height_memory: dict[int, tuple[float, float]] = field(default_factory=dict)
+
 
 @dataclass
 class DuoFernData:
@@ -2655,6 +2686,26 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
         reg_bytes[byte_pos + 3] = updated & 0xFF
         state.weather_config_registers[reg_index] = reg_bytes.hex().upper()
 
+    def _get_reg_byte(
+        self, state: DuoFernDeviceState, reg_index: int, byte_pos: int
+    ) -> int:
+        """Read one raw byte from a config register (0 if page not yet received)."""
+        reg_hex = state.weather_config_registers.get(reg_index, "0" * 20)
+        return bytearray.fromhex(reg_hex)[byte_pos]
+
+    def _get_reg_word32(
+        self, state: DuoFernDeviceState, reg_index: int, byte_pos: int
+    ) -> int:
+        """Read a raw 32-bit big-endian word from a config register."""
+        reg_hex = state.weather_config_registers.get(reg_index, "0" * 20)
+        b = bytearray.fromhex(reg_hex)
+        return (
+            (b[byte_pos] << 24)
+            | (b[byte_pos + 1] << 16)
+            | (b[byte_pos + 2] << 8)
+            | b[byte_pos + 3]
+        )
+
     def _flush_weather_config(self, state: DuoFernDeviceState) -> None:
         """Re-decode all config registers and push one update to HA.
 
@@ -3163,6 +3214,435 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
         self._flush_weather_config(state)
 
     # ------------------------------------------------------------------
+    # Structured per-Grenzwert GUI (Number/Switch/Select entities)
+    # ------------------------------------------------------------------
+    #
+    # One Number + one "aktiv" Switch (+ a Grenzwert 1-5 Select) per trigger
+    # group, instead of 5x the entities. All read/write exactly ONE slot at
+    # a time — whichever is currently selected in
+    # state.selected_grenzwert[group]. Reuses the already-verified
+    # _raw_update_reg_byte/_raw_update_reg_word32 + _flush_weather_config
+    # machinery; no changes to the underlying register encoding, only to
+    # how individual bits within it are addressed (one slot instead of all
+    # 5 space-separated at once).
+    #
+    # Five of the seven field types (Wind, Temperature, Dawn, Dusk, Sun
+    # brightness/timing/temp) have a genuinely separate enable bit — the
+    # device itself remembers the value while disabled, no HA-side storage
+    # needed. sunDirection/sunHeight do NOT have a separate enable bit (see
+    # DuoFernDeviceState.sun_direction_memory/sun_height_memory for why) —
+    # those two use local memory instead, documented at each method.
+
+    async def async_set_selected_grenzwert(
+        self, device_code: DuoFernId, group: str, slot: int
+    ) -> None:
+        """Change which Grenzwert (1-5) is displayed/edited for a trigger group."""
+        state = self.data.devices.get(device_code.hex + "00")
+        if state is None:
+            return
+        state.selected_grenzwert[group] = max(1, min(5, slot))
+        self.async_set_updated_data(self.data)
+
+    # --- Wind: reg6, byte=slot-1, enable=bit5(0x20), value=bits0-4 (1-31) ---
+
+    def get_trigger_wind_slot(
+        self, device_code: DuoFernId, slot: int
+    ) -> tuple[bool, int]:
+        state = self.data.devices.get(device_code.hex + "00")
+        if state is None:
+            return (False, 1)
+        b = self._get_reg_byte(state, 6, slot - 1)
+        enabled = bool(b & 0x20)
+        value = b & 0x1F
+        return (enabled, value if value > 0 else 1)
+
+    async def async_set_trigger_wind_slot_enabled(
+        self, device_code: DuoFernId, slot: int, enabled: bool
+    ) -> None:
+        state = self.data.devices.get(device_code.hex + "00")
+        if state is None:
+            return
+        self._set_weather_config_byte(
+            state, 6, slot - 1, 0x20 if enabled else 0x00, 0x20
+        )
+
+    async def async_set_trigger_wind_slot_value(
+        self, device_code: DuoFernId, slot: int, value: int
+    ) -> None:
+        state = self.data.devices.get(device_code.hex + "00")
+        if state is None:
+            return
+        value = max(1, min(31, value))
+        self._set_weather_config_byte(state, 6, slot - 1, value, 0x1F)
+
+    # --- Temperature: reg6, byte=5+(slot-1), enable=bit7(0x80), value=bits0-6 (raw-40) ---
+
+    def get_trigger_temperature_slot(
+        self, device_code: DuoFernId, slot: int
+    ) -> tuple[bool, int]:
+        state = self.data.devices.get(device_code.hex + "00")
+        if state is None:
+            return (False, 0)
+        b = self._get_reg_byte(state, 6, 5 + (slot - 1))
+        enabled = bool(b & 0x80)
+        value = (b & 0x7F) - 40
+        return (enabled, value)
+
+    async def async_set_trigger_temperature_slot_enabled(
+        self, device_code: DuoFernId, slot: int, enabled: bool
+    ) -> None:
+        state = self.data.devices.get(device_code.hex + "00")
+        if state is None:
+            return
+        self._set_weather_config_byte(
+            state, 6, 5 + (slot - 1), 0x80 if enabled else 0x00, 0x80
+        )
+
+    async def async_set_trigger_temperature_slot_value(
+        self, device_code: DuoFernId, slot: int, value: int
+    ) -> None:
+        state = self.data.devices.get(device_code.hex + "00")
+        if state is None:
+            return
+        value = max(-40, min(80, value))
+        self._set_weather_config_byte(
+            state, 6, 5 + (slot - 1), (value + 40) & 0x7F, 0x7F
+        )
+
+    # --- Dawn/Dusk: regs0-2, shared 32-bit word per slot ---
+    # positions[slot-1] = (reg, byte) of the word start for that slot.
+    _DAWN_DUSK_POS: tuple[tuple[int, int], ...] = (
+        (0, 0),
+        (0, 4),
+        (1, 0),
+        (1, 4),
+        (2, 0),
+    )
+
+    def get_trigger_dawn_slot(
+        self, device_code: DuoFernId, slot: int
+    ) -> tuple[bool, int]:
+        state = self.data.devices.get(device_code.hex + "00")
+        if state is None:
+            return (False, 1)
+        reg, byte = self._DAWN_DUSK_POS[slot - 1]
+        w = self._get_reg_word32(state, reg, byte)
+        enabled = bool(w & 0x10000000)
+        value = (w & 0x7F) + 1
+        return (enabled, value)
+
+    async def async_set_trigger_dawn_slot_enabled(
+        self, device_code: DuoFernId, slot: int, enabled: bool
+    ) -> None:
+        state = self.data.devices.get(device_code.hex + "00")
+        if state is None:
+            return
+        reg, byte = self._DAWN_DUSK_POS[slot - 1]
+        self._set_weather_config_word32(
+            state, reg, byte, 0x10000000 if enabled else 0x00, 0x10000000
+        )
+
+    async def async_set_trigger_dawn_slot_value(
+        self, device_code: DuoFernId, slot: int, value: int
+    ) -> None:
+        state = self.data.devices.get(device_code.hex + "00")
+        if state is None:
+            return
+        value = max(1, min(100, value))
+        reg, byte = self._DAWN_DUSK_POS[slot - 1]
+        self._set_weather_config_word32(state, reg, byte, (value - 1) & 0x7F, 0x7F)
+
+    def get_trigger_dusk_slot(
+        self, device_code: DuoFernId, slot: int
+    ) -> tuple[bool, int]:
+        state = self.data.devices.get(device_code.hex + "00")
+        if state is None:
+            return (False, 1)
+        reg, byte = self._DAWN_DUSK_POS[slot - 1]
+        w = self._get_reg_word32(state, reg, byte)
+        enabled = bool(w & 0x20000000)
+        value = ((w >> 14) & 0x7F) + 1
+        return (enabled, value)
+
+    async def async_set_trigger_dusk_slot_enabled(
+        self, device_code: DuoFernId, slot: int, enabled: bool
+    ) -> None:
+        state = self.data.devices.get(device_code.hex + "00")
+        if state is None:
+            return
+        reg, byte = self._DAWN_DUSK_POS[slot - 1]
+        self._set_weather_config_word32(
+            state, reg, byte, 0x20000000 if enabled else 0x00, 0x20000000
+        )
+
+    async def async_set_trigger_dusk_slot_value(
+        self, device_code: DuoFernId, slot: int, value: int
+    ) -> None:
+        state = self.data.devices.get(device_code.hex + "00")
+        if state is None:
+            return
+        value = max(1, min(100, value))
+        reg, byte = self._DAWN_DUSK_POS[slot - 1]
+        self._set_weather_config_word32(
+            state, reg, byte, ((value - 1) & 0x7F) << 14, 0x1FC000
+        )
+
+    # --- Sun (brightness/timing/optional temp coupling): regs3-5 ---
+    _SUN_POS: tuple[tuple[int, int], ...] = ((3, 0), (3, 5), (4, 0), (4, 5), (5, 0))
+
+    def get_trigger_sun_slot(
+        self, device_code: DuoFernId, slot: int
+    ) -> tuple[bool, int, int, int, bool, int]:
+        """Returns (enabled, kLux, sunMinutes, shadowMinutes, temp_enabled, temp)."""
+        state = self.data.devices.get(device_code.hex + "00")
+        if state is None:
+            return (False, 1, 1, 1, False, 0)
+        reg, byte = self._SUN_POS[slot - 1]
+        w = self._get_reg_word32(state, reg, byte)
+        enabled = bool(w & 0x20000000)
+        klux = ((w >> 12) & 0x7F) + 1
+        sun_min = ((w >> 19) & 0x1F) + 1
+        shadow_min = ((w >> 24) & 0x1F) + 1
+        temp_enabled = bool(w & 0x40)
+        temp = ((w >> 7) & 0x1F) - 5 if temp_enabled else 0
+        return (enabled, klux, sun_min, shadow_min, temp_enabled, temp)
+
+    async def async_set_trigger_sun_slot_enabled(
+        self, device_code: DuoFernId, slot: int, enabled: bool
+    ) -> None:
+        state = self.data.devices.get(device_code.hex + "00")
+        if state is None:
+            return
+        reg, byte = self._SUN_POS[slot - 1]
+        self._set_weather_config_word32(
+            state, reg, byte, 0x20000000 if enabled else 0x00, 0x20000000
+        )
+
+    async def async_set_trigger_sun_slot_klux(
+        self, device_code: DuoFernId, slot: int, klux: int
+    ) -> None:
+        state = self.data.devices.get(device_code.hex + "00")
+        if state is None:
+            return
+        klux = max(1, min(100, klux))
+        reg, byte = self._SUN_POS[slot - 1]
+        # bits 12-18 only — enable(bit29), sunMin/shadowMin/temp bits untouched.
+        self._set_weather_config_word32(state, reg, byte, (klux - 1) << 12, 0x0007F000)
+
+    async def async_set_trigger_sun_slot_sun_minutes(
+        self, device_code: DuoFernId, slot: int, minutes: int
+    ) -> None:
+        state = self.data.devices.get(device_code.hex + "00")
+        if state is None:
+            return
+        minutes = max(1, min(30, minutes))
+        reg, byte = self._SUN_POS[slot - 1]
+        self._set_weather_config_word32(
+            state, reg, byte, (minutes - 1) << 19, 0x00F80000
+        )
+
+    async def async_set_trigger_sun_slot_shadow_minutes(
+        self, device_code: DuoFernId, slot: int, minutes: int
+    ) -> None:
+        state = self.data.devices.get(device_code.hex + "00")
+        if state is None:
+            return
+        minutes = max(1, min(30, minutes))
+        reg, byte = self._SUN_POS[slot - 1]
+        self._set_weather_config_word32(
+            state, reg, byte, (minutes - 1) << 24, 0x1F000000
+        )
+
+    async def async_set_trigger_sun_slot_temp_enabled(
+        self, device_code: DuoFernId, slot: int, enabled: bool
+    ) -> None:
+        """Toggle "Mit Temperatur verknüpfen" without touching the temp value bits."""
+        state = self.data.devices.get(device_code.hex + "00")
+        if state is None:
+            return
+        reg, byte = self._SUN_POS[slot - 1]
+        self._set_weather_config_word32(
+            state, reg, byte, 0x40 if enabled else 0x00, 0x40
+        )
+
+    async def async_set_trigger_sun_slot_temp(
+        self, device_code: DuoFernId, slot: int, temp: int
+    ) -> None:
+        state = self.data.devices.get(device_code.hex + "00")
+        if state is None:
+            return
+        temp = max(-5, min(26, temp))
+        reg, byte = self._SUN_POS[slot - 1]
+        self._set_weather_config_word32(state, reg, byte, (temp + 5) << 7, 0x00000F80)
+
+    # --- SunDirection / SunHeight: regs3-5, share one 32-bit word per slot ---
+    # NO separate enable bit — "off" is width_idx==0 within the value bits
+    # themselves (see DuoFernDeviceState docstring). Local memory
+    # (sun_direction_memory/sun_height_memory) preserves angle/width across
+    # an off→on toggle, since the device can't.
+    _SUN_DIR_HEIGHT_POS: tuple[tuple[int, int], ...] = (
+        (3, 1),
+        (3, 6),
+        (4, 1),
+        (4, 6),
+        (5, 1),
+    )
+
+    def get_trigger_sun_direction_slot(
+        self, device_code: DuoFernId, slot: int
+    ) -> tuple[bool, float, float]:
+        """Returns (enabled, angle, width). angle/width come from local memory
+        while disabled (device has none to offer); from the register while enabled.
+        """
+        state = self.data.devices.get(device_code.hex + "00")
+        if state is None:
+            return (False, 0.0, 90.0)
+        reg, byte = self._SUN_DIR_HEIGHT_POS[slot - 1]
+        w = self._get_reg_word32(state, reg, byte)
+        t_dir = w & 0xFF
+        width_idx = (t_dir >> 4) & 0x07
+        enabled = bool(width_idx)
+        if enabled:
+            center = t_dir & 0x0F
+            angle = (center - width_idx) * 22.5 + 45  # empirical +45, see protocol.py
+            width = width_idx * 45
+            return (True, angle, width)
+        remembered = state.sun_direction_memory.get(slot, (0.0, 90.0))
+        return (False, remembered[0], remembered[1])
+
+    async def async_set_trigger_sun_direction_slot_enabled(
+        self, device_code: DuoFernId, slot: int, enabled: bool
+    ) -> None:
+        state = self.data.devices.get(device_code.hex + "00")
+        if state is None:
+            return
+        reg, byte = self._SUN_DIR_HEIGHT_POS[slot - 1]
+        if enabled:
+            angle, width = state.sun_direction_memory.get(slot, (0.0, 90.0))
+            await self._write_trigger_sun_direction_slot(
+                device_code, slot, angle, width
+            )
+        else:
+            # Remember current value before switching to the enable-less "off"
+            # encoding, mirroring the cross-read "off" logic already verified
+            # for the space-separated text setter (async_set_trigger_sun_direction).
+            _, angle, width = self.get_trigger_sun_direction_slot(device_code, slot)
+            state.sun_direction_memory[slot] = (angle, width)
+            # Check sunHeight's current state (word_byte2 = byte+2), mirroring
+            # the verified logic in async_set_trigger_sun_direction.
+            word_byte2 = self._get_reg_byte(state, reg, byte + 2)
+            off_val = 0x81 if (word_byte2 & 0x18) else 0x01
+            self._set_weather_config_word32(state, reg, byte, off_val, 0xFF)
+
+    async def async_set_trigger_sun_direction_slot_value(
+        self, device_code: DuoFernId, slot: int, angle: float, width: float
+    ) -> None:
+        """Set angle/width. If the slot is currently off, only updates local
+        memory (matches Homepilot: adjusting the slider doesn't implicitly
+        activate the Grenzwert — that's what the "nutzen" switch is for).
+        """
+        state = self.data.devices.get(device_code.hex + "00")
+        if state is None:
+            return
+        enabled, _, _ = self.get_trigger_sun_direction_slot(device_code, slot)
+        state.sun_direction_memory[slot] = (angle, width)
+        if enabled:
+            await self._write_trigger_sun_direction_slot(
+                device_code, slot, angle, width
+            )
+        else:
+            self.async_set_updated_data(self.data)
+
+    async def _write_trigger_sun_direction_slot(
+        self, device_code: DuoFernId, slot: int, angle: float, width: float
+    ) -> None:
+        state = self.data.devices.get(device_code.hex + "00")
+        if state is None:
+            return
+        reg, byte = self._SUN_DIR_HEIGHT_POS[slot - 1]
+        # Empirical -45° correction, symmetric to the +45° in decode — see
+        # protocol.py decode_weather_config() for the 3 real-device data
+        # points that confirmed this (all at width=90°, see NOTES.md caveat).
+        angle_idx = int((angle - 45 + 11.25) / 22.5)
+        width_idx = int((width + 22.5) / 45)
+        if (angle_idx + width_idx * 2) > 15:
+            angle_idx = 15 - width_idx * 2
+        enc_byte = ((angle_idx + width_idx) | (width_idx << 4) | 0x80) & 0xFF
+        self._set_weather_config_word32(state, reg, byte, enc_byte, 0xFF)
+
+    def get_trigger_sun_height_slot(
+        self, device_code: DuoFernId, slot: int
+    ) -> tuple[bool, float, float]:
+        """Returns (enabled, fromAngle, widthAngle)."""
+        state = self.data.devices.get(device_code.hex + "00")
+        if state is None:
+            return (False, 0.0, 26.0)
+        reg, byte = self._SUN_DIR_HEIGHT_POS[slot - 1]
+        w = self._get_reg_word32(state, reg, byte)
+        t_height = (w >> 8) & 0xFF
+        width_idx = (t_height >> 3) & 0x03
+        enabled = bool((t_height >> 3) & 0x07)
+        if enabled:
+            from_idx = t_height & 0x07
+            from_angle = (from_idx - width_idx) * 13
+            width_angle = width_idx * 26
+            return (True, from_angle, width_angle)
+        remembered = state.sun_height_memory.get(slot, (0.0, 26.0))
+        return (False, remembered[0], remembered[1])
+
+    async def async_set_trigger_sun_height_slot_enabled(
+        self, device_code: DuoFernId, slot: int, enabled: bool
+    ) -> None:
+        state = self.data.devices.get(device_code.hex + "00")
+        if state is None:
+            return
+        reg, byte = self._SUN_DIR_HEIGHT_POS[slot - 1]
+        if enabled:
+            from_angle, width_angle = state.sun_height_memory.get(slot, (0.0, 26.0))
+            await self._write_trigger_sun_height_slot(
+                device_code, slot, from_angle, width_angle
+            )
+        else:
+            _, from_angle, width_angle = self.get_trigger_sun_height_slot(
+                device_code, slot
+            )
+            state.sun_height_memory[slot] = (from_angle, width_angle)
+            # Check sunDirection's current state (word_byte3 = byte+3), mirroring
+            # the verified logic in async_set_trigger_sun_height.
+            word_byte3 = self._get_reg_byte(state, reg, byte + 3)
+            off_val = 0x0180 if (word_byte3 & 0x70) else 0x0100
+            self._set_weather_config_word32(state, reg, byte, off_val, 0x1F80)
+
+    async def async_set_trigger_sun_height_slot_value(
+        self, device_code: DuoFernId, slot: int, from_angle: float, width_angle: float
+    ) -> None:
+        state = self.data.devices.get(device_code.hex + "00")
+        if state is None:
+            return
+        enabled, _, _ = self.get_trigger_sun_height_slot(device_code, slot)
+        state.sun_height_memory[slot] = (from_angle, width_angle)
+        if enabled:
+            await self._write_trigger_sun_height_slot(
+                device_code, slot, from_angle, width_angle
+            )
+        else:
+            self.async_set_updated_data(self.data)
+
+    async def _write_trigger_sun_height_slot(
+        self, device_code: DuoFernId, slot: int, from_angle: float, width_angle: float
+    ) -> None:
+        state = self.data.devices.get(device_code.hex + "00")
+        if state is None:
+            return
+        reg, byte = self._SUN_DIR_HEIGHT_POS[slot - 1]
+        from_idx = int((from_angle + 6.5) / 13)
+        width_idx = int((width_angle + 13) / 26)
+        if (from_idx + width_idx * 2) > 7:
+            from_idx = 7 - width_idx * 2
+        raw = ((from_idx + width_idx) << 8) | (width_idx << 11) | 0x80
+        self._set_weather_config_word32(state, reg, byte, raw & 0x1F80, 0x1F80)
+
+    # ------------------------------------------------------------------
     # Diagnostics
     # ------------------------------------------------------------------
 
@@ -3170,7 +3650,7 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
         """Return snapshot of all device states for diagnostics.py."""
         result: dict[str, Any] = {}
         for hex_code, state in self.data.devices.items():
-            result[hex_code] = {
+            entry: dict[str, Any] = {
                 "device_type": f"0x{state.device_code.device_type:02X}",
                 "device_type_name": state.device_code.device_type_name,
                 "channel": state.channel,
@@ -3184,4 +3664,17 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
                 "readings": state.status.readings,
                 "last_seen": state.last_seen,
             }
+            # Umweltsensor weather-station channel ("00") specific state —
+            # only meaningful there, kept out of every other device's
+            # diagnostics entry to avoid clutter.
+            if state.device_code.device_type == 0x69 and state.channel == "00":
+                entry["weather_config_registers"] = dict(state.weather_config_registers)
+                entry["selected_grenzwert"] = dict(state.selected_grenzwert)
+                entry["sun_direction_memory"] = {
+                    str(k): v for k, v in state.sun_direction_memory.items()
+                }
+                entry["sun_height_memory"] = {
+                    str(k): v for k, v in state.sun_height_memory.items()
+                }
+            result[hex_code] = entry
         return result

@@ -2,13 +2,25 @@
 
 Provides GUI-selectable automation triggers for:
   - Handsender / Wandtaster: one trigger per (channel, action) combination
-  - Environmental sensors (A5/AF/A9/AA) and 0x61 RolloTron Comfort Master:
-    one trigger per (sun/wind, start/end) combination
+  - Environmental sensors (A5/AF/A9/AA), 0x61 RolloTron Comfort Master, and
+    0x69 Umweltsensor: one trigger per (sun/wind/rain/temperature, start/end)
+    combination — whichever apply to that device type
 
 From 30_DUOFERN.pm sensorMsg:
-  Button events: up, stop, down, stepUp, stepDown, pressed, on, off
-  Sun events:    0708 startSun, 070A endSun
-  Wind events:   070D startWind, 070E endWind
+  Button events:       up, stop, down, stepUp, stepDown, pressed, on, off
+  Sun events:          0708 startSun, 070A endSun
+  Wind events:         070D startWind, 070E endWind
+  Rain events:         0711 startRain, 0712 endRain (Umweltsensor only)
+  Temperature events:  071C startTemp, 071D endTemp (Umweltsensor only)
+
+Umweltsensor (0x69) special case: it is registered as two separate HA
+devices (channel "00" weather station, channel "01" actor) that both report
+device_type=0x69. Only channel "00" ever sends these events — see the
+channel-suffix guard in async_get_triggers().
+
+dawn/dusk (sensorMsg 0713/0709) are NOT offered here — no start/end pair
+(single momentary trigger), already covered by HA's native Event-entity
+trigger via DuoFernUmweltsensorDawnDuskEvent in event.py.
 """
 
 from __future__ import annotations
@@ -27,8 +39,10 @@ from homeassistant.helpers.typing import ConfigType
 
 from .const import (
     DOMAIN,
+    RAIN_SENSOR_DEVICE_TYPES,
     REMOTE_DEVICE_TYPES,
     SUN_SENSOR_DEVICE_TYPES,
+    TEMP_SENSOR_DEVICE_TYPES,
     WIND_SENSOR_DEVICE_TYPES,
 )
 from .coordinator import DUOFERN_EVENT
@@ -62,10 +76,18 @@ _REMOTE_CHANNELS: dict[int, list[str]] = {
 }
 
 # Environmental trigger types: trigger_type -> [(subtype, duofern_event_name), ...]
-# From 30_DUOFERN.pm sensorMsg: 0708=startSun, 070A=endSun, 070D=startWind, 070E=endWind
+# From 30_DUOFERN.pm sensorMsg: 0708=startSun, 070A=endSun, 070D=startWind,
+# 070E=endWind, 0711=startRain, 0712=endRain, 071C=startTemp, 071D=endTemp.
+# dawn/dusk (0713/0709) are deliberately NOT here — they have no start/end
+# pair (single momentary trigger) and are already covered by HA's native
+# Event-entity trigger via DuoFernUmweltsensorDawnDuskEvent in event.py;
+# duplicating them here would just offer two confusing ways to do the same
+# thing.
 _ENV_TRIGGERS: dict[str, list[tuple[str, str]]] = {
     "sun": [("start", "startSun"), ("end", "endSun")],
     "wind": [("start", "startWind"), ("end", "endWind")],
+    "rain": [("start", "startRain"), ("end", "endRain")],
+    "temperature": [("start", "startTemp"), ("end", "endTemp")],
 }
 
 TRIGGER_SCHEMA = DEVICE_TRIGGER_BASE_SCHEMA.extend(
@@ -127,13 +149,27 @@ async def async_get_triggers(hass: HomeAssistant, device_id: str) -> list[dict]:
     # --- Environmental sensors and 0x61 RolloTron Comfort Master ---
     # 0x61 is a cover with a built-in brightness sensor.
     # A5/AF/A9/AA are dedicated sensor devices.
+    # 0x69 (Umweltsensor) is special: it is registered as TWO separate HA
+    # devices (channel "00" weather station, channel "01" actor), both
+    # reporting the same device_type=0x69 since _get_hex_code_and_type only
+    # looks at the first hex byte. Only channel "00" ever actually sends
+    # these sensorMsg events — offering the trigger on the channel "01"
+    # device would silently never fire. Guard against that explicitly.
     _is_sun = device_type in SUN_SENSOR_DEVICE_TYPES
     _is_wind = device_type in WIND_SENSOR_DEVICE_TYPES
-    if _is_sun or _is_wind:
+    _is_rain = device_type in RAIN_SENSOR_DEVICE_TYPES
+    _is_temperature = device_type in TEMP_SENSOR_DEVICE_TYPES
+    if device_type == 0x69 and not _hex_code.endswith("00"):
+        _is_sun = _is_wind = _is_rain = _is_temperature = False
+    if _is_sun or _is_wind or _is_rain or _is_temperature:
         for trigger_type, subtypes in _ENV_TRIGGERS.items():
             if trigger_type == "sun" and not _is_sun:
                 continue
             if trigger_type == "wind" and not _is_wind:
+                continue
+            if trigger_type == "rain" and not _is_rain:
+                continue
+            if trigger_type == "temperature" and not _is_temperature:
                 continue
             for subtype, _event_name in subtypes:
                 triggers.append(

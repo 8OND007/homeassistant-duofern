@@ -206,6 +206,38 @@ async def async_setup_entry(
                         DuoFernSelect(coordinator, device_state, hex_code, desc)
                     )
 
+    # Umweltsensor (0x69) channel "00": structured trigger GUI.
+    # One Grenzwert 1-5 selector per group (Wind/Temperatur/Dawn/Dusk/Sonne),
+    # plus the Homepilot-confirmed discrete-value selects (sunDirection
+    # Bereich, sunHeight Zielhöhe, sunHeight Bereich). See coordinator.py's
+    # "Structured per-Grenzwert GUI" section for the underlying data model.
+    for hex_code, device_state in coordinator.data.devices.items():
+        if (
+            device_state.device_code.device_type == 0x69
+            and device_state.channel == "00"
+        ):
+            for group, name in (
+                ("wind", "Wind Trigger Slot"),
+                ("temperature", "Temperature Trigger Slot"),
+                ("dawn", "Dawn Trigger Slot"),
+                ("dusk", "Dusk Trigger Slot"),
+                ("sun", "Sun Trigger Slot"),
+            ):
+                entities.append(
+                    DuoFernGrenzwertSelector(
+                        coordinator, device_state, hex_code, group, name
+                    )
+                )
+            entities.append(
+                DuoFernSunDirectionWidthSelect(coordinator, device_state, hex_code)
+            )
+            entities.append(
+                DuoFernSunHeightTargetSelect(coordinator, device_state, hex_code)
+            )
+            entities.append(
+                DuoFernSunHeightWidthSelect(coordinator, device_state, hex_code)
+            )
+
     # Register this platform's unique_ids centrally so __init__.py can
     # remove stale entities from previous integration versions.
     coordinator.data.registered_unique_ids.update(
@@ -292,6 +324,259 @@ class DuoFernSelect(CoordinatorEntity[DuoFernCoordinator], SelectEntity, Restore
         """Send the selected option to the device."""
         method = getattr(self.coordinator, self.entity_description.coordinator_method)
         await method(self._device_code, option)
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        self.async_write_ha_state()
+
+
+# ---------------------------------------------------------------------------
+# Structured trigger GUI — Umweltsensor 0x69 channel "00"
+# ---------------------------------------------------------------------------
+#
+# One Grenzwert 1-5 selector per trigger group, plus the Homepilot-confirmed
+# discrete-value selects (angle/width options that only ever take specific
+# fixed values, per Gerald's Homepilot screenshots). All other trigger
+# values (continuous ranges, or unconfirmed ranges) are Number entities in
+# number.py instead — see NOTES.md for the min/max/step source per field.
+
+
+class DuoFernGrenzwertSelector(CoordinatorEntity[DuoFernCoordinator], SelectEntity):
+    """Picks which of the up to 5 Grenzwerte (trigger slots) is currently
+    shown/edited by the other entities in this group (Number/Switch).
+
+    Purely a local HA UI concept — not stored on the device. Changing this
+    just changes what coordinator.selected_grenzwert[group] points at; the
+    dependent Number/Switch entities re-read/re-render via the coordinator
+    update this triggers.
+    """
+
+    _attr_has_entity_name = True
+    _attr_options = ["1", "2", "3", "4", "5"]
+    _attr_icon = "mdi:numeric"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(
+        self,
+        coordinator: DuoFernCoordinator,
+        device_state: DuoFernDeviceState,
+        hex_code: str,
+        group: str,
+        name: str,
+    ) -> None:
+        super().__init__(coordinator)
+        self._hex_code = hex_code
+        self._device_code = device_state.device_code
+        self._group = group
+        self._attr_unique_id = f"{DOMAIN}_{hex_code}_{group}_grenzwert_select"
+        self._attr_translation_key = f"{group}_grenzwert"
+        self._attr_name = name
+        self._attr_device_info = DeviceInfo(identifiers={(DOMAIN, hex_code)})
+
+    @property
+    def _device_state(self) -> DuoFernDeviceState | None:
+        if self.coordinator.data is None:
+            return None
+        return self.coordinator.data.devices.get(self._hex_code)
+
+    @property
+    def available(self) -> bool:
+        state = self._device_state
+        return state is not None and self.coordinator.last_update_success
+
+    @property
+    def current_option(self) -> str:
+        state = self._device_state
+        if state is None:
+            return "1"
+        return str(state.selected_grenzwert.get(self._group, 1))
+
+    async def async_select_option(self, option: str) -> None:
+        await self.coordinator.async_set_selected_grenzwert(
+            self._device_code, self._group, int(option)
+        )
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        self.async_write_ha_state()
+
+
+class DuoFernSunDirectionWidthSelect(
+    CoordinatorEntity[DuoFernCoordinator], SelectEntity
+):
+    """Sonnenrichtung "Bereich" — confirmed discrete values from Homepilot: 0/45/90/135/180°.
+
+    Reads/writes whichever Grenzwert is currently selected for the "sun"
+    group (shared selector with the other Sonne fields). Changing this keeps
+    the current angle unchanged — both values are always written together
+    since the device encodes them in the same byte.
+    """
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "sun_direction_width"
+    _attr_name = "Sun Direction Width"
+    _attr_icon = "mdi:angle-acute"
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_options = ["0", "45", "90", "135", "180"]
+
+    def __init__(
+        self,
+        coordinator: DuoFernCoordinator,
+        device_state: DuoFernDeviceState,
+        hex_code: str,
+    ) -> None:
+        super().__init__(coordinator)
+        self._hex_code = hex_code
+        self._device_code = device_state.device_code
+        self._attr_unique_id = f"{DOMAIN}_{hex_code}_sun_direction_width"
+        self._attr_device_info = DeviceInfo(identifiers={(DOMAIN, hex_code)})
+
+    @property
+    def _device_state(self) -> DuoFernDeviceState | None:
+        if self.coordinator.data is None:
+            return None
+        return self.coordinator.data.devices.get(self._hex_code)
+
+    @property
+    def _slot(self) -> int:
+        state = self._device_state
+        return state.selected_grenzwert.get("sun", 1) if state else 1
+
+    @property
+    def available(self) -> bool:
+        state = self._device_state
+        return state is not None and self.coordinator.last_update_success
+
+    @property
+    def current_option(self) -> str:
+        _, _, width = self.coordinator.get_trigger_sun_direction_slot(
+            self._device_code, self._slot
+        )
+        return str(int(width))
+
+    async def async_select_option(self, option: str) -> None:
+        _, angle, _ = self.coordinator.get_trigger_sun_direction_slot(
+            self._device_code, self._slot
+        )
+        await self.coordinator.async_set_trigger_sun_direction_slot_value(
+            self._device_code, self._slot, angle, float(option)
+        )
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        self.async_write_ha_state()
+
+
+class DuoFernSunHeightTargetSelect(CoordinatorEntity[DuoFernCoordinator], SelectEntity):
+    """Sonnenhöhe "Zielhöhe" — confirmed discrete values from Homepilot: 13/26/39/52/65/78°."""
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "sun_height_target"
+    _attr_name = "Sun Height Target"
+    _attr_icon = "mdi:angle-acute"
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_options = ["13", "26", "39", "52", "65", "78"]
+
+    def __init__(
+        self,
+        coordinator: DuoFernCoordinator,
+        device_state: DuoFernDeviceState,
+        hex_code: str,
+    ) -> None:
+        super().__init__(coordinator)
+        self._hex_code = hex_code
+        self._device_code = device_state.device_code
+        self._attr_unique_id = f"{DOMAIN}_{hex_code}_sun_height_target"
+        self._attr_device_info = DeviceInfo(identifiers={(DOMAIN, hex_code)})
+
+    @property
+    def _device_state(self) -> DuoFernDeviceState | None:
+        if self.coordinator.data is None:
+            return None
+        return self.coordinator.data.devices.get(self._hex_code)
+
+    @property
+    def _slot(self) -> int:
+        state = self._device_state
+        return state.selected_grenzwert.get("sun", 1) if state else 1
+
+    @property
+    def available(self) -> bool:
+        state = self._device_state
+        return state is not None and self.coordinator.last_update_success
+
+    @property
+    def current_option(self) -> str:
+        _, from_angle, _ = self.coordinator.get_trigger_sun_height_slot(
+            self._device_code, self._slot
+        )
+        return str(int(from_angle))
+
+    async def async_select_option(self, option: str) -> None:
+        _, _, width = self.coordinator.get_trigger_sun_height_slot(
+            self._device_code, self._slot
+        )
+        await self.coordinator.async_set_trigger_sun_height_slot_value(
+            self._device_code, self._slot, float(option), width
+        )
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        self.async_write_ha_state()
+
+
+class DuoFernSunHeightWidthSelect(CoordinatorEntity[DuoFernCoordinator], SelectEntity):
+    """Sonnenhöhe "Bereich" — confirmed discrete values from Homepilot: 0/26/52°."""
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "sun_height_width"
+    _attr_name = "Sun Height Width"
+    _attr_icon = "mdi:angle-acute"
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_options = ["0", "26", "52"]
+
+    def __init__(
+        self,
+        coordinator: DuoFernCoordinator,
+        device_state: DuoFernDeviceState,
+        hex_code: str,
+    ) -> None:
+        super().__init__(coordinator)
+        self._hex_code = hex_code
+        self._device_code = device_state.device_code
+        self._attr_unique_id = f"{DOMAIN}_{hex_code}_sun_height_width"
+        self._attr_device_info = DeviceInfo(identifiers={(DOMAIN, hex_code)})
+
+    @property
+    def _device_state(self) -> DuoFernDeviceState | None:
+        if self.coordinator.data is None:
+            return None
+        return self.coordinator.data.devices.get(self._hex_code)
+
+    @property
+    def _slot(self) -> int:
+        state = self._device_state
+        return state.selected_grenzwert.get("sun", 1) if state else 1
+
+    @property
+    def available(self) -> bool:
+        state = self._device_state
+        return state is not None and self.coordinator.last_update_success
+
+    @property
+    def current_option(self) -> str:
+        _, _, width = self.coordinator.get_trigger_sun_height_slot(
+            self._device_code, self._slot
+        )
+        return str(int(width))
+
+    async def async_select_option(self, option: str) -> None:
+        _, from_angle, _ = self.coordinator.get_trigger_sun_height_slot(
+            self._device_code, self._slot
+        )
+        await self.coordinator.async_set_trigger_sun_height_slot_value(
+            self._device_code, self._slot, from_angle, float(option)
+        )
 
     @callback
     def _handle_coordinator_update(self) -> None:

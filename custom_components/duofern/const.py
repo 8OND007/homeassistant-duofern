@@ -236,12 +236,29 @@ SUN_SENSOR_DEVICE_TYPES: Final[set[int]] = {
     0xA5,  # Sonnensensor
     0xAF,  # Sonnensensor (alternate model)
     0xA9,  # Sonnen-/Windsensor
+    0x69,  # Umweltsensor — ONLY channel "00" (weather station) ever sends
+    # this; channel "01" (actor) shares the same device_type but
+    # never fires it. device_trigger.py must additionally check the
+    # channel suffix before offering this trigger — see its comment.
 }
 
 # Devices that send startWind/endWind events (sensorMsg 070D/070E)
 WIND_SENSOR_DEVICE_TYPES: Final[set[int]] = {
     0xA9,  # Sonnen-/Windsensor
     0xAA,  # Markisenwaechter
+    0x69,  # Umweltsensor — channel "00" only, see SUN_SENSOR_DEVICE_TYPES comment
+}
+
+# Devices that send startRain/endRain events (sensorMsg 0711/0712).
+# Only the Umweltsensor has this trigger — channel "00" only (see above).
+RAIN_SENSOR_DEVICE_TYPES: Final[set[int]] = {
+    0x69,  # Umweltsensor
+}
+
+# Devices that send startTemp/endTemp events (sensorMsg 071C/071D).
+# Only the Umweltsensor has this trigger — channel "00" only (see above).
+TEMP_SENSOR_DEVICE_TYPES: Final[set[int]] = {
+    0x69,  # Umweltsensor
 }
 
 # Remote controls / wall buttons / timers — fire HA events, no persistent state.

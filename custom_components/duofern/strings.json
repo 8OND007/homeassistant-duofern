@@ -245,6 +245,30 @@
       },
       "boost": {
         "name": "Boost"
+      },
+      "wind_grenzwert_aktiv": {
+        "name": "Wind Trigger Active"
+      },
+      "temperature_grenzwert_aktiv": {
+        "name": "Temperature Trigger Active"
+      },
+      "dawn_grenzwert_aktiv": {
+        "name": "Dawn Trigger Active"
+      },
+      "dusk_grenzwert_aktiv": {
+        "name": "Dusk Trigger Active"
+      },
+      "sun_grenzwert_aktiv": {
+        "name": "Sun Trigger Active"
+      },
+      "sun_temperatur_verknuepfen": {
+        "name": "Sun Link Temperature"
+      },
+      "sun_direction_nutzen": {
+        "name": "Use Sun Direction"
+      },
+      "sun_height_nutzen": {
+        "name": "Use Sun Height"
       }
     },
     "number": {
@@ -301,6 +325,33 @@
       },
       "boost_duration": {
         "name": "Boost Duration"
+      },
+      "wind_grenzwert_value": {
+        "name": "Wind Target Value"
+      },
+      "temperature_grenzwert_value": {
+        "name": "Temperature Target Value"
+      },
+      "dawn_grenzwert_value": {
+        "name": "Dawn Brightness"
+      },
+      "dusk_grenzwert_value": {
+        "name": "Dusk Brightness"
+      },
+      "sun_grenzwert_klux": {
+        "name": "Sun Brightness"
+      },
+      "sun_grenzwert_sun_minutes": {
+        "name": "Sun Detection Delay"
+      },
+      "sun_grenzwert_shadow_minutes": {
+        "name": "Shadow Detection Delay"
+      },
+      "sun_grenzwert_temp": {
+        "name": "Sun Minimum Temperature"
+      },
+      "sun_direction_angle": {
+        "name": "Sun Direction Target Angle"
       }
     },
     "select": {
@@ -373,6 +424,30 @@
           "90": "90 min",
           "100": "100 min"
         }
+      },
+      "wind_grenzwert": {
+        "name": "Wind Trigger Slot"
+      },
+      "temperature_grenzwert": {
+        "name": "Temperature Trigger Slot"
+      },
+      "dawn_grenzwert": {
+        "name": "Dawn Trigger Slot"
+      },
+      "dusk_grenzwert": {
+        "name": "Dusk Trigger Slot"
+      },
+      "sun_grenzwert": {
+        "name": "Sun Trigger Slot"
+      },
+      "sun_direction_width": {
+        "name": "Sun Direction Width"
+      },
+      "sun_height_target": {
+        "name": "Sun Height Target"
+      },
+      "sun_height_width": {
+        "name": "Sun Height Width"
       }
     },
     "sensor": {
@@ -419,7 +494,9 @@
       "channel_05": "Channel 5 – {subtype}",
       "channel_06": "Channel 6 – {subtype}",
       "sun": "Sun – {subtype}",
-      "wind": "Wind – {subtype}"
+      "wind": "Wind – {subtype}",
+      "rain": "Rain – {subtype}",
+      "temperature": "Temperature – {subtype}"
     },
     "trigger_subtype": {
       "up": "Up",

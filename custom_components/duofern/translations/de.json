@@ -245,6 +245,30 @@
       },
       "boost": {
         "name": "Boost"
+      },
+      "wind_grenzwert_aktiv": {
+        "name": "Wind Grenzwert Aktiv"
+      },
+      "temperature_grenzwert_aktiv": {
+        "name": "Temperatur Grenzwert Aktiv"
+      },
+      "dawn_grenzwert_aktiv": {
+        "name": "Morgendämmerung Grenzwert Aktiv"
+      },
+      "dusk_grenzwert_aktiv": {
+        "name": "Abenddämmerung Grenzwert Aktiv"
+      },
+      "sun_grenzwert_aktiv": {
+        "name": "Sonne Grenzwert Aktiv"
+      },
+      "sun_temperatur_verknuepfen": {
+        "name": "Sonne Mit Temperatur verknüpfen"
+      },
+      "sun_direction_nutzen": {
+        "name": "Sonnenrichtung nutzen"
+      },
+      "sun_height_nutzen": {
+        "name": "Sonnenhöhe nutzen"
       }
     },
     "number": {
@@ -301,6 +325,33 @@
       },
       "boost_duration": {
         "name": "Boost-Dauer"
+      },
+      "wind_grenzwert_value": {
+        "name": "Wind Zielwert"
+      },
+      "temperature_grenzwert_value": {
+        "name": "Temperatur Zielwert"
+      },
+      "dawn_grenzwert_value": {
+        "name": "Morgendämmerung Helligkeit"
+      },
+      "dusk_grenzwert_value": {
+        "name": "Abenddämmerung Helligkeit"
+      },
+      "sun_grenzwert_klux": {
+        "name": "Sonne Helligkeit"
+      },
+      "sun_grenzwert_sun_minutes": {
+        "name": "Sonne erkennen nach"
+      },
+      "sun_grenzwert_shadow_minutes": {
+        "name": "Schatten erkennen nach"
+      },
+      "sun_grenzwert_temp": {
+        "name": "Sonne Ab Temperatur von"
+      },
+      "sun_direction_angle": {
+        "name": "Sonnenrichtung Zielrichtung"
       }
     },
     "select": {
@@ -373,6 +424,30 @@
           "90": "90 Min.",
           "100": "100 Min."
         }
+      },
+      "wind_grenzwert": {
+        "name": "Wind Grenzwert"
+      },
+      "temperature_grenzwert": {
+        "name": "Temperatur Grenzwert"
+      },
+      "dawn_grenzwert": {
+        "name": "Morgendämmerung Grenzwert"
+      },
+      "dusk_grenzwert": {
+        "name": "Abenddämmerung Grenzwert"
+      },
+      "sun_grenzwert": {
+        "name": "Sonne Grenzwert"
+      },
+      "sun_direction_width": {
+        "name": "Sonnenrichtung Bereich"
+      },
+      "sun_height_target": {
+        "name": "Sonnenhöhe Zielhöhe"
+      },
+      "sun_height_width": {
+        "name": "Sonnenhöhe Bereich"
       }
     },
     "sensor": {
@@ -419,7 +494,9 @@
       "channel_05": "Kanal 5 – {subtype}",
       "channel_06": "Kanal 6 – {subtype}",
       "sun": "Sonne – {subtype}",
-      "wind": "Wind – {subtype}"
+      "wind": "Wind – {subtype}",
+      "rain": "Regen – {subtype}",
+      "temperature": "Temperatur – {subtype}"
     },
     "trigger_subtype": {
       "up": "Hoch",

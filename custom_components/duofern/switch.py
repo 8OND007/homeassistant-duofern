@@ -562,6 +562,16 @@ async def async_setup_entry(
         if dev_type == 0xE1:
             entities.append(DuoFernBoostSwitch(coordinator, device_state, hex_code))
 
+        # 4. Structured trigger GUI — Umweltsensor 0x69 channel "00".
+        # "Aktiv"/"nutzen" toggles for each trigger group's currently
+        # selected Grenzwert. See coordinator.py's "Structured per-Grenzwert
+        # GUI" section for the data model these read/write against.
+        if dev_type == 0x69 and device_state.channel == "00":
+            for desc in GRENZWERT_SWITCH_DESCRIPTIONS:
+                entities.append(
+                    DuoFernGrenzwertSwitch(coordinator, device_state, hex_code, desc)
+                )
+
     # Register this platform's unique_ids centrally so __init__.py can
     # remove stale entities from previous integration versions.
     coordinator.data.registered_unique_ids.update(
@@ -906,6 +916,169 @@ class DuoFernBoostSwitch(CoordinatorEntity[DuoFernCoordinator], SwitchEntity):
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         await self.coordinator.async_set_boost(self._device_code, False)
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        self.async_write_ha_state()
+
+
+# ---------------------------------------------------------------------------
+# Structured trigger GUI — Umweltsensor 0x69 channel "00"
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class DuoFernGrenzwertSwitchDescription:
+    """Describes one 'Aktiv'/'nutzen' toggle for the currently selected
+    Grenzwert of a trigger group.
+
+    get_method: coordinator method name, called as get_method(device_code, slot),
+      returns a tuple whose element at enabled_index is the on/off bool.
+    set_method: coordinator method name, called as
+      set_method(device_code, slot, enabled: bool).
+    """
+
+    key: str
+    translation_key: str
+    name: str
+    icon: str
+    group: str
+    get_method: str
+    set_method: str
+    enabled_index: int = 0
+
+
+GRENZWERT_SWITCH_DESCRIPTIONS: tuple[DuoFernGrenzwertSwitchDescription, ...] = (
+    DuoFernGrenzwertSwitchDescription(
+        key="wind_grenzwert_aktiv",
+        translation_key="wind_grenzwert_aktiv",
+        name="Wind Trigger Active",
+        icon="mdi:weather-windy",
+        group="wind",
+        get_method="get_trigger_wind_slot",
+        set_method="async_set_trigger_wind_slot_enabled",
+    ),
+    DuoFernGrenzwertSwitchDescription(
+        key="temperature_grenzwert_aktiv",
+        translation_key="temperature_grenzwert_aktiv",
+        name="Temperature Trigger Active",
+        icon="mdi:thermometer-alert",
+        group="temperature",
+        get_method="get_trigger_temperature_slot",
+        set_method="async_set_trigger_temperature_slot_enabled",
+    ),
+    DuoFernGrenzwertSwitchDescription(
+        key="dawn_grenzwert_aktiv",
+        translation_key="dawn_grenzwert_aktiv",
+        name="Dawn Trigger Active",
+        icon="mdi:weather-sunset-up",
+        group="dawn",
+        get_method="get_trigger_dawn_slot",
+        set_method="async_set_trigger_dawn_slot_enabled",
+    ),
+    DuoFernGrenzwertSwitchDescription(
+        key="dusk_grenzwert_aktiv",
+        translation_key="dusk_grenzwert_aktiv",
+        name="Dusk Trigger Active",
+        icon="mdi:weather-sunset-down",
+        group="dusk",
+        get_method="get_trigger_dusk_slot",
+        set_method="async_set_trigger_dusk_slot_enabled",
+    ),
+    DuoFernGrenzwertSwitchDescription(
+        key="sun_grenzwert_aktiv",
+        translation_key="sun_grenzwert_aktiv",
+        name="Sun Trigger Active",
+        icon="mdi:white-balance-sunny",
+        group="sun",
+        get_method="get_trigger_sun_slot",
+        set_method="async_set_trigger_sun_slot_enabled",
+    ),
+    DuoFernGrenzwertSwitchDescription(
+        key="sun_temperatur_verknuepfen",
+        translation_key="sun_temperatur_verknuepfen",
+        name="Sun Link Temperature",
+        icon="mdi:thermometer",
+        group="sun",
+        get_method="get_trigger_sun_slot",
+        set_method="async_set_trigger_sun_slot_temp_enabled",
+        enabled_index=4,  # (enabled, klux, sun_min, shadow_min, temp_enabled, temp)
+    ),
+    DuoFernGrenzwertSwitchDescription(
+        key="sun_direction_nutzen",
+        translation_key="sun_direction_nutzen",
+        name="Use Sun Direction",
+        icon="mdi:sun-compass",
+        group="sun",
+        get_method="get_trigger_sun_direction_slot",
+        set_method="async_set_trigger_sun_direction_slot_enabled",
+    ),
+    DuoFernGrenzwertSwitchDescription(
+        key="sun_height_nutzen",
+        translation_key="sun_height_nutzen",
+        name="Use Sun Height",
+        icon="mdi:angle-acute",
+        group="sun",
+        get_method="get_trigger_sun_height_slot",
+        set_method="async_set_trigger_sun_height_slot_enabled",
+    ),
+)
+
+
+class DuoFernGrenzwertSwitch(CoordinatorEntity[DuoFernCoordinator], SwitchEntity):
+    """Generic 'Aktiv'/'nutzen' toggle for whichever Grenzwert is currently
+    selected in its trigger group (see DuoFernGrenzwertSelector in select.py).
+    """
+
+    _attr_has_entity_name = True
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(
+        self,
+        coordinator: DuoFernCoordinator,
+        device_state: DuoFernDeviceState,
+        hex_code: str,
+        description: DuoFernGrenzwertSwitchDescription,
+    ) -> None:
+        super().__init__(coordinator)
+        self._hex_code = hex_code
+        self._device_code = device_state.device_code
+        self._desc = description
+        self._attr_unique_id = f"{DOMAIN}_{hex_code}_{description.key}"
+        self._attr_translation_key = description.translation_key
+        self._attr_name = description.name
+        self._attr_icon = description.icon
+        self._attr_device_info = DeviceInfo(identifiers={(DOMAIN, hex_code)})
+
+    @property
+    def _device_state(self) -> DuoFernDeviceState | None:
+        if self.coordinator.data is None:
+            return None
+        return self.coordinator.data.devices.get(self._hex_code)
+
+    @property
+    def _slot(self) -> int:
+        state = self._device_state
+        return state.selected_grenzwert.get(self._desc.group, 1) if state else 1
+
+    @property
+    def available(self) -> bool:
+        state = self._device_state
+        return state is not None and self.coordinator.last_update_success
+
+    @property
+    def is_on(self) -> bool:
+        get_fn = getattr(self.coordinator, self._desc.get_method)
+        result = get_fn(self._device_code, self._slot)
+        return bool(result[self._desc.enabled_index])
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        set_fn = getattr(self.coordinator, self._desc.set_method)
+        await set_fn(self._device_code, self._slot, True)
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        set_fn = getattr(self.coordinator, self._desc.set_method)
+        await set_fn(self._device_code, self._slot, False)
 
     @callback
     def _handle_coordinator_update(self) -> None:
