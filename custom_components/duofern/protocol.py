@@ -1233,8 +1233,8 @@ class DuoFernDecoder:
         return SensorEvent(
             device_code=device_code.hex,
             channel=chan_hex,
-            event_name=spec["name"],
-            state=spec.get("state"),
+            event_name=event_name,
+            state=state,
             raw_msg_id=msg_id,
         )
 
