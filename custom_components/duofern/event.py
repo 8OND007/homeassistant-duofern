@@ -179,7 +179,8 @@ class DuoFernUmweltsensorDawnDuskEvent(
 
     _attr_has_entity_name = True
     _attr_translation_key = "dawn_dusk"
-    _attr_name = "Dawn/Dusk"
+    # Deliberately NO explicit _attr_name — see DuoFernActiveGrenzwerteSensor
+    # in sensor.py for why (setting both blocks the translation lookup).
     _attr_event_types = ["dawn", "dusk"]
 
     def __init__(

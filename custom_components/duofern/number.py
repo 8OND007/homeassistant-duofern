@@ -712,8 +712,11 @@ class DuoFernGrenzwertNumber(CoordinatorEntity[DuoFernCoordinator], NumberEntity
         self._device_code = device_state.device_code
         self._desc = description
         self._attr_unique_id = f"{DOMAIN}_{hex_code}_{description.key}"
+        # Deliberately NO explicit _attr_name — see DuoFernActiveGrenzwerteSensor
+        # in sensor.py for why (setting both translation_key and name blocks
+        # the translation lookup entirely). description.name is unused now,
+        # kept on the dataclass only as documentation of the English default.
         self._attr_translation_key = description.translation_key
-        self._attr_name = description.name
         self._attr_icon = description.icon
         self._attr_native_min_value = description.native_min_value
         self._attr_native_max_value = description.native_max_value

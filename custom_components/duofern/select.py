@@ -216,17 +216,9 @@ async def async_setup_entry(
             device_state.device_code.device_type == 0x69
             and device_state.channel == "00"
         ):
-            for group, name in (
-                ("wind", "Wind Trigger Slot"),
-                ("temperature", "Temperature Trigger Slot"),
-                ("dawn", "Dawn Trigger Slot"),
-                ("dusk", "Dusk Trigger Slot"),
-                ("sun", "Sun Trigger Slot"),
-            ):
+            for group in ("wind", "temperature", "dawn", "dusk", "sun"):
                 entities.append(
-                    DuoFernGrenzwertSelector(
-                        coordinator, device_state, hex_code, group, name
-                    )
+                    DuoFernGrenzwertSelector(coordinator, device_state, hex_code, group)
                 )
             entities.append(
                 DuoFernSunDirectionAngleSelect(coordinator, device_state, hex_code)
@@ -365,15 +357,16 @@ class DuoFernGrenzwertSelector(CoordinatorEntity[DuoFernCoordinator], SelectEnti
         device_state: DuoFernDeviceState,
         hex_code: str,
         group: str,
-        name: str,
     ) -> None:
         super().__init__(coordinator)
         self._hex_code = hex_code
         self._device_code = device_state.device_code
         self._group = group
         self._attr_unique_id = f"{DOMAIN}_{hex_code}_{group}_grenzwert_select"
+        # Deliberately NO explicit _attr_name — see
+        # DuoFernActiveGrenzwerteSensor in sensor.py for why (setting both
+        # translation_key and name blocks the translation lookup entirely).
         self._attr_translation_key = f"{group}_grenzwert"
-        self._attr_name = name
         self._attr_device_info = DeviceInfo(identifiers={(DOMAIN, hex_code)})
 
     @property
@@ -424,7 +417,9 @@ class DuoFernSunDirectionAngleSelect(
 
     _attr_has_entity_name = True
     _attr_translation_key = "sun_direction_angle"
-    _attr_name = "Sun Direction Target Angle"
+    # Deliberately NO explicit _attr_name — see DuoFernActiveGrenzwerteSensor
+    # in sensor.py for why (setting both translation_key and name blocks
+    # the translation lookup entirely).
     _attr_icon = "mdi:compass-outline"
     _attr_entity_category = EntityCategory.CONFIG
     _attr_options = [
@@ -513,7 +508,6 @@ class DuoFernSunDirectionWidthSelect(
 
     _attr_has_entity_name = True
     _attr_translation_key = "sun_direction_width"
-    _attr_name = "Sun Direction Width"
     _attr_icon = "mdi:angle-acute"
     _attr_entity_category = EntityCategory.CONFIG
     _attr_options = ["0", "45", "90", "135", "180"]
@@ -571,7 +565,6 @@ class DuoFernSunHeightTargetSelect(CoordinatorEntity[DuoFernCoordinator], Select
 
     _attr_has_entity_name = True
     _attr_translation_key = "sun_height_target"
-    _attr_name = "Sun Height Target"
     _attr_icon = "mdi:angle-acute"
     _attr_entity_category = EntityCategory.CONFIG
     _attr_options = ["13", "26", "39", "52", "65", "78"]
@@ -629,7 +622,6 @@ class DuoFernSunHeightWidthSelect(CoordinatorEntity[DuoFernCoordinator], SelectE
 
     _attr_has_entity_name = True
     _attr_translation_key = "sun_height_width"
-    _attr_name = "Sun Height Width"
     _attr_icon = "mdi:angle-acute"
     _attr_entity_category = EntityCategory.CONFIG
     _attr_options = ["0", "26", "52"]

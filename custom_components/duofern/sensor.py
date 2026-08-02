@@ -959,19 +959,17 @@ class DuoFernActiveGrenzwerteSensor(
         self._event_on = event_on
         self._event_off = event_off
         self._attr_unique_id = f"{DOMAIN}_{hex_code}_{translation_key}"
+        # Only translation_key is set — deliberately NO explicit _attr_name.
+        # HA's Entity.name resolution checks _attr_name FIRST, and uses it
+        # directly (ignoring translation_key entirely) whenever it's a
+        # non-None string — confirmed by home-assistant/core#98993 and HA's
+        # own dev docs ("Avoid setting an entity's name to a hard coded
+        # English string, instead, the name should be translated."). Setting
+        # both here previously meant strings.json/en.json/de.json's entries
+        # for this translation_key were silently never used — the earlier
+        # fallback name always won instead, in every language, which is
+        # exactly what Gerald saw (English text despite German HA language).
         self._attr_translation_key = translation_key
-        # Explicit English fallback name — without this AND without a
-        # matching strings.json entry (which this translation_key never had
-        # until now), HA's name resolution falls through to None, and with
-        # has_entity_name=True that means the entity shows ONLY the device
-        # name ("Wetterstation") with nothing distinguishing it from the
-        # other rows. This is exactly what Gerald saw.
-        _FALLBACK_NAMES = {
-            "sun_grenzwerte": "Sun Trigger Slots",
-            "wind_grenzwerte": "Wind Trigger Slots",
-            "temperature_grenzwerte": "Temperature Trigger Slots",
-        }
-        self._attr_name = _FALLBACK_NAMES.get(translation_key, translation_key)
         self._attr_icon = icon
         self._attr_device_info = DeviceInfo(identifiers={(DOMAIN, hex_code)})
         self._active_slots: set[int] = set()
