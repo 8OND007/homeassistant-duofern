@@ -655,6 +655,10 @@ GRENZWERT_NUMBER_DESCRIPTIONS: tuple[DuoFernGrenzwertNumberDescription, ...] = (
         group="sun",
         native_min_value=1,
         native_max_value=32,  # confirmed by Gerald against real Homepilot slider
+        native_step=1,
+        native_unit_of_measurement="min",
+        get_method="get_trigger_sun_slot",
+        set_method="async_set_trigger_sun_slot_sun_minutes",
         value_index=2,
     ),
     DuoFernGrenzwertNumberDescription(
@@ -665,6 +669,10 @@ GRENZWERT_NUMBER_DESCRIPTIONS: tuple[DuoFernGrenzwertNumberDescription, ...] = (
         group="sun",
         native_min_value=1,
         native_max_value=32,  # confirmed by Gerald against real Homepilot slider
+        native_step=1,
+        native_unit_of_measurement="min",
+        get_method="get_trigger_sun_slot",
+        set_method="async_set_trigger_sun_slot_shadow_minutes",
         value_index=3,
     ),
     DuoFernGrenzwertNumberDescription(
