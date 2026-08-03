@@ -282,11 +282,37 @@ async def _async_cleanup_stale_devices(
     # Always keep the USB stick itself
     paired_hexes.add(coordinator.system_code.hex)
 
-    # ── 2. The set of unique_ids that the current integration code actually
-    #       created this run — populated by each platform via coordinator.data.
-    #       registered_unique_ids.update(...) before calling async_add_entities.
-    #       This is the ground truth: anything NOT in this set is stale. ───────
-    current_unique_ids: set[str] = coordinator.data.registered_unique_ids
+    # ── 2. The set of (domain, unique_id) pairs that the current integration
+    #       code actually created this run — populated by each platform via
+    #       coordinator.data.registered_unique_ids.update(...) before calling
+    #       async_add_entities. This is the ground truth: anything NOT in
+    #       this set is stale. Must be (domain, unique_id) tuples, NOT bare
+    #       unique_id strings — unique_id is only unique WITHIN a domain, so
+    #       comparing bare strings would incorrectly treat an orphaned entity
+    #       in one domain (e.g. a removed number.xxx_foo) as "still valid"
+    #       whenever some OTHER domain's entity happens to reuse the same
+    #       unique_id string (e.g. a new select.xxx_foo) — exactly what
+    #       happened when sun_direction_angle was migrated from Number to
+    #       Select while keeping the same unique_id.
+    #
+    #       As of 2026-08-02 all 11 platforms (binary_sensor, event, number,
+    #       select, sensor, switch, text, button, climate, cover, light)
+    #       contribute (domain, unique_id) tuples — the migration described
+    #       above is complete, every entry in the set below should be a
+    #       tuple. The dual-format handling (current_tuple_ids /
+    #       current_bare_ids split) is kept anyway as a defensive safety net
+    #       — a future platform file that's edited without this comment in
+    #       view could easily reintroduce a bare-string contribution, and
+    #       this way that would degrade gracefully (same as it did for the
+    #       4 platforms during the original migration) instead of causing
+    #       mass entity deletion on the next reload. ─────────────────────
+    current_unique_ids: set[tuple[str, str] | str] = (
+        coordinator.data.registered_unique_ids
+    )
+    current_tuple_ids: set[tuple[str, str]] = {
+        x for x in current_unique_ids if isinstance(x, tuple)
+    }
+    current_bare_ids: set[str] = {x for x in current_unique_ids if isinstance(x, str)}
 
     # Safety guard: if no unique_ids were registered at all, one or more
     # platforms failed to load (e.g. button.py raised during async_setup_entry).
@@ -326,16 +352,24 @@ async def _async_cleanup_stale_devices(
 
     # ── 4. Remove stale entities on still-paired devices ────────────────────
     # After step 3 the registry only contains entities for devices that are
-    # still paired.  Any entity whose unique_id is NOT in current_unique_ids
-    # was created by an older version of the integration and should be removed.
+    # still paired. Any entity whose (domain, unique_id) is NOT in
+    # current_tuple_ids AND whose bare unique_id is NOT in current_bare_ids
+    # (legacy fallback, see note above) was created by an older version of
+    # the integration and should be removed.
     for reg_entry in er.async_entries_for_config_entry(entity_reg, entry.entry_id):
-        if reg_entry.unique_id not in current_unique_ids:
+        is_current = (
+            reg_entry.domain,
+            reg_entry.unique_id,
+        ) in current_tuple_ids or reg_entry.unique_id in current_bare_ids
+        if not is_current:
             entity_reg.async_remove(reg_entry.entity_id)
             _LOGGER.warning(
-                "Removed stale entity '%s' (unique_id '%s' is no longer created "
-                "by the current integration version — this is expected after an "
-                "integration update that removed or renamed entity types)",
+                "Removed stale entity '%s' (domain '%s', unique_id '%s' is no "
+                "longer created by the current integration version — this is "
+                "expected after an integration update that removed, renamed, "
+                "or moved an entity to a different domain)",
                 reg_entry.entity_id,
+                reg_entry.domain,
                 reg_entry.unique_id,
             )
 

@@ -244,13 +244,32 @@ class DuoFernData:
     pairing_active: bool = False
     unpairing_active: bool = False
     pairing_remaining: int = 0
-    # Unique IDs of every entity created during the current setup run.
-    # Populated by each platform's async_setup_entry via
-    # coordinator.data.registered_unique_ids.update(...).
+    # (platform_domain, unique_id) pairs for every entity created during the
+    # current setup run. Populated by each platform's async_setup_entry via
+    # coordinator.data.registered_unique_ids.update(("sensor", e._attr_unique_id)
+    # for e in entities ...) — NOTE: must be a (domain, unique_id) tuple, NOT
+    # a bare unique_id string. unique_id is only unique WITHIN a domain in
+    # HA's entity registry (e.g. number.xxx_foo and select.xxx_foo can both
+    # exist with the same unique_id string, as two entirely separate registry
+    # entries) — comparing bare strings caused a real bug: when
+    # sun_direction_angle was migrated from a Number entity to a Select
+    # entity reusing the same unique_id, the orphaned number.xxx_
+    # sun_direction_angle entity was never cleaned up, because select.py's
+    # NEW entity contributed the same bare string to this set, making the
+    # stale-entity check in __init__.py think the old one was still valid.
+    #
+    # TRANSITIONAL note kept for history: button.py, cover.py, climate.py,
+    # and light.py were briefly not migrated to the tuple format in the same
+    # session as the other 7 — __init__.py's _async_cleanup_stale_devices
+    # handled a MIX of tuples and bare strings safely during that gap.
+    # As of 2026-08-02 all 11 platforms contribute (domain, unique_id)
+    # tuples — the migration is complete. The dual-format handling in
+    # __init__.py is kept anyway as a defensive safety net against any
+    # future platform accidentally reintroducing a bare-string contribution.
     # Used by _async_cleanup_stale_devices in __init__.py to detect and remove
     # entities that were registered in a previous version of the integration
     # but are no longer created by the current code.
-    registered_unique_ids: set[str] = field(default_factory=set)
+    registered_unique_ids: set[tuple[str, str] | str] = field(default_factory=set)
 
 
 class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
