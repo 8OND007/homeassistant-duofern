@@ -801,13 +801,16 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
         firing behavior is completely unchanged, zero risk to the sensor.py/
         event.py consumers already built and verified against it.
 
-        Separate finding, NOT fixed here: the same FHEM line shows 0x65
+        Separate finding, now also fixed here: the same FHEM line shows 0x65
         (Bewegungsmelder) and 0x74 (Wandtaster) ALSO redirect their
-        sensorMsg readings onto a "..00" sub-device — but our DEVICE_CHANNELS
-        only registers "01" for both. This is very likely the same class of
-        bug for those two device types, left untouched here to keep this fix
-        narrowly scoped to 0x69 and avoid any regression risk for actors
-        that already work. Needs its own investigation before touching.
+        sensorMsg readings onto a "..00" sub-device — our DEVICE_CHANNELS
+        now registers "00" for both (see const.py), and the condition below
+        covers all three device types, mirroring FHEM's own regex exactly:
+        if($code =~ m/^(65|69|74).*/). The event-entity setup loops for
+        these two device types (binary_sensor.py's motion sensor, event.py's
+        DuoFernRemoteEvent) are correspondingly guarded to attach to
+        channel "00" only, so they resolve to the same hex_code these events
+        now carry.
         """
         event = DuoFernDecoder.parse_sensor_event(frame)
         if event is None:
@@ -828,11 +831,11 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
         except Exception:
             _dc = None
 
-        # Umweltsensor sensorMsg events belong to the weather-station
-        # sub-channel "00" — see docstring above for the caveat.
+        # 0x65/0x69/0x74 sensorMsg events belong to the "00" sub-channel —
+        # see docstring above. From 30_DUOFERN.pm: if($code =~ m/^(65|69|74).*/)
         lookup_hex = event.device_code
         fired_device_code = event.device_code
-        if _dc is not None and _dc.device_type == 0x69:
+        if _dc is not None and _dc.device_type in (0x65, 0x69, 0x74):
             lookup_hex = event.device_code + "00"
             fired_device_code = event.device_code + "00"
 

@@ -287,13 +287,22 @@ REMOTE_DEVICE_TYPES: Final[set[int]] = {
 
 DEVICE_CHANNELS: Final[dict[int, list[str]]] = {
     0x43: ["01", "02"],  # Universalaktor:   channel 01 and 02
-    0x65: ["01"],  # Motion detector:  channel 01
+    # 0x65 Bewegungsmelder has two sub-channels, same split as 0x69/0x74:
+    #   "00" = sensor-event channel (motion start/end) — see 30_DUOFERN.pm
+    #          line ~1325: sensorMsg events for 65/69/74 are redirected onto
+    #          "$code.00", not the pre-declared "01".
+    #   "01" = actor/relay channel (%setsSwitchActor in FHEM) — not yet
+    #          exposed as an entity, but registered so the state exists.
+    0x65: ["00", "01"],  # Motion detector: channel 00 (events) + 01 (actor)
     # 0x69 Umweltsensor has two sub-channels:
     #   "00" = weather station channel (getWeather / getTime / config buttons)
     #   "01" = actor channel (automation/heating outputs)
     # Both must be registered so that the correct entities are created for each.
     0x69: ["00", "01"],  # Umweltsensor: channel 00 (weather station) + 01 (actor)
-    0x74: ["01"],  # Wandtaster 6fach: channel 01
+    # 0x74 Wandtaster 6fach 230V — same split as 0x65 above: "00" is where
+    # the 6 buttons' sensorMsg events land (per 30_DUOFERN.pm line ~1325),
+    # "01" is the pre-declared actor/relay channel (not yet exposed).
+    0x74: ["00", "01"],  # Wandtaster 6fach: channel 00 (events) + 01 (actor)
 }
 
 # ---------------------------------------------------------------------------

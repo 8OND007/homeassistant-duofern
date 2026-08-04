@@ -131,7 +131,14 @@ async def async_setup_entry(
     entities: list[BinarySensorEntity] = []
     for hex_code, device_state in coordinator.data.devices.items():
         # Event-based sensors
-        if device_state.device_code.is_binary_sensor:
+        # 0x65 now has two sub-channels ("00" events, "01" actor — see
+        # DEVICE_CHANNELS in const.py); the motion-sensor entity itself
+        # belongs on "00", where sensorMsg events actually land (see
+        # coordinator._handle_sensor_event's "00"-redirect for 65/69/74).
+        # channel != "01" also passes for 0xAB/0xAC (channel is always None
+        # for them, since they have no DEVICE_CHANNELS entry), so this guard
+        # only changes behaviour for 0x65.
+        if device_state.device_code.is_binary_sensor and device_state.channel != "01":
             if device_state.device_code.device_type == 0xAC:
                 # Fenster-Tuer-Kontakt: two separate entities for opened vs tilted
                 for sensor_type, trans_key in (

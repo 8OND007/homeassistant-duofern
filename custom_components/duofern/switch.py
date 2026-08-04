@@ -502,6 +502,107 @@ AUTOMATION_SWITCH_DESCRIPTIONS: tuple[DuoFernAutomationSwitchDescription, ...] =
         icon="mdi:window-open",
         device_types=frozenset({0xE1}),
     ),
+    # --- 0x65 (Bewegungsmelder) / 0x74 (Wandtaster 6fach 230V) channel "01" ---
+    # Separate, dedicated descriptions rather than adding 0x65/0x74 to the
+    # existing broad entries above: those are matched purely by device_type
+    # int with channel_filter=None (no restriction), so mixing in a
+    # channel-carrying device type there would incorrectly apply to BOTH of
+    # its channels. From 30_DUOFERN.pm:
+    #   %sets = (%setsSwitchActor, %setsPair) if ($hash->{CODE} =~ /^(65|74)....01/);
+    # %setsSwitchActor: getStatus, on, off, dawnAutomatic, duskAutomatic,
+    # manualMode, sunAutomatic, timeAutomatic, sunMode, modeChange,
+    # stairwellFunction, stairwellTime, dusk, dawn. getStatus/on/off are
+    # handled elsewhere (button.py / DuoFernSwitch); dusk/dawn become
+    # buttons (see button.py); stairwellTime is a Number, not a Switch
+    # (see number.py). The remaining 7 boolean flags are below.
+    DuoFernAutomationSwitchDescription(
+        key="dawnAutomatic",
+        reading_key="dawnAutomatic",
+        automation_name="dawnAutomatic",
+        translation_key="dawn_automatic",
+        name="Dawn Automatic",
+        entity_category=EntityCategory.CONFIG,
+        icon="mdi:weather-sunset-up",
+        device_types=frozenset({0x65, 0x74}),
+        channel_filter="01",
+    ),
+    DuoFernAutomationSwitchDescription(
+        key="duskAutomatic",
+        reading_key="duskAutomatic",
+        automation_name="duskAutomatic",
+        translation_key="dusk_automatic",
+        name="Dusk Automatic",
+        entity_category=EntityCategory.CONFIG,
+        icon="mdi:weather-sunset-down",
+        device_types=frozenset({0x65, 0x74}),
+        channel_filter="01",
+    ),
+    DuoFernAutomationSwitchDescription(
+        key="manualMode",
+        reading_key="manualMode",
+        automation_name="manualMode",
+        translation_key="manual_mode",
+        name="Manual Mode",
+        entity_category=EntityCategory.CONFIG,
+        icon="mdi:account-cog",
+        device_types=frozenset({0x65, 0x74}),
+        channel_filter="01",
+    ),
+    DuoFernAutomationSwitchDescription(
+        key="sunAutomatic",
+        reading_key="sunAutomatic",
+        automation_name="sunAutomatic",
+        translation_key="sun_automatic",
+        name="Sun Automatic",
+        entity_category=EntityCategory.CONFIG,
+        icon="mdi:white-balance-sunny",
+        device_types=frozenset({0x65, 0x74}),
+        channel_filter="01",
+    ),
+    DuoFernAutomationSwitchDescription(
+        key="timeAutomatic",
+        reading_key="timeAutomatic",
+        automation_name="timeAutomatic",
+        translation_key="time_automatic",
+        name="Time Automatic",
+        entity_category=EntityCategory.CONFIG,
+        icon="mdi:clock-check",
+        device_types=frozenset({0x65, 0x74}),
+        channel_filter="01",
+    ),
+    DuoFernAutomationSwitchDescription(
+        key="sunMode",
+        reading_key="sunMode",
+        automation_name="sunMode",
+        translation_key="sun_mode",
+        name="Sun Mode",
+        entity_category=EntityCategory.CONFIG,
+        icon="mdi:sun-thermometer",
+        device_types=frozenset({0x65, 0x74}),
+        channel_filter="01",
+    ),
+    DuoFernAutomationSwitchDescription(
+        key="modeChange",
+        reading_key="modeChange",
+        automation_name="modeChange",
+        translation_key="mode_change",
+        name="Mode Change",
+        entity_category=EntityCategory.CONFIG,
+        icon="mdi:toggle-switch",
+        device_types=frozenset({0x65, 0x74}),
+        channel_filter="01",
+    ),
+    DuoFernAutomationSwitchDescription(
+        key="stairwellFunction",
+        reading_key="stairwellFunction",
+        automation_name="stairwellFunction",
+        translation_key="stairwell_function",
+        name="Stairwell Function",
+        entity_category=EntityCategory.CONFIG,
+        icon="mdi:stairs",
+        device_types=frozenset({0x65, 0x74}),
+        channel_filter="01",
+    ),
 )
 
 # Readings only shown as attributes — not as separate switch entities
@@ -525,9 +626,19 @@ async def async_setup_entry(
 
     for hex_code, device_state in coordinator.data.devices.items():
         dev_type = device_state.device_code.device_type
+        # Channel-aware device code — needed so is_switch/is_remote can
+        # distinguish 0x65/0x74's channel "01" (actor, IS a switch) from
+        # channel "00" (sensor events, NOT a switch). For every other
+        # device_state.channel is None, so dc is identical to
+        # device_state.device_code and behaviour is unchanged.
+        dc = (
+            device_state.device_code.with_channel(device_state.channel)
+            if device_state.channel
+            else device_state.device_code
+        )
 
         # 1. Device on/off switches
-        if device_state.device_code.is_switch:
+        if dc.is_switch:
             entities.append(
                 DuoFernSwitch(
                     coordinator=coordinator,
@@ -538,16 +649,14 @@ async def async_setup_entry(
             _LOGGER.debug("Adding switch entity for device %s", hex_code)
 
         # 2. Automation toggle switches (CONFIG) for actuators only
-        if (
-            not device_state.device_code.is_remote
-            and not device_state.device_code.is_env_sensor
-        ):
+        if not dc.is_remote and not dc.is_env_sensor:
             for desc in AUTOMATION_SWITCH_DESCRIPTIONS:
                 if dev_type in desc.device_types:
                     # channel_filter=None → no restriction (all existing descriptions).
                     # channel_filter set → only create for the matching sub-channel.
-                    # This is used exclusively for 0x69 Umweltsensor to separate
-                    # channel "00" (config switches) from channel "01" (actor switches).
+                    # Used for 0x69 Umweltsensor (channel "00" config vs "01" actor
+                    # switches) and for 0x65/0x74 (channel "01" actor only — see
+                    # the dedicated descriptions below).
                     if (
                         desc.channel_filter is None
                         or device_state.channel == desc.channel_filter

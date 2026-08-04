@@ -174,6 +174,27 @@ NUMBER_DESCRIPTIONS: tuple[DuoFernNumberDescription, ...] = (
         device_types=frozenset({0x43, 0x46, 0x48, 0x4A, 0x71}),
         coordinator_method="async_set_stairwell_time",
     ),
+    # 0x65 (Bewegungsmelder) / 0x74 (Wandtaster 6fach 230V) channel "01":
+    # same reading, but needs its own entry with channel_filter="01" since
+    # the entry above serves channel-less device types (channel_filter=None
+    # there means "no restriction" — mixing a channel-carrying type into it
+    # would incorrectly apply to both of its channels). From 30_DUOFERN.pm:
+    #   %setsSwitchActor includes "stairwellTime:slider,0,10,3200".
+    DuoFernNumberDescription(
+        key="stairwellTime",
+        translation_key="stairwell_time",
+        reading_key="stairwellTime",
+        name="Stairwell Time",
+        native_min_value=0,
+        native_max_value=3200,
+        native_step=10,
+        native_unit_of_measurement="s",
+        entity_category=EntityCategory.CONFIG,
+        icon="mdi:stairs",
+        device_types=frozenset({0x65, 0x74}),
+        channel_filter="01",
+        coordinator_method="async_set_stairwell_time",
+    ),
     # --- Dimmer: intermediate value + running time ---
     DuoFernNumberDescription(
         key="intermediateValue",
@@ -418,7 +439,8 @@ async def async_setup_entry(
             if dev_type in desc.device_types:
                 # channel_filter=None → no restriction (all existing descriptions).
                 # channel_filter set → only create for the matching sub-channel.
-                # Used for 0x69 Umweltsensor only; no other device type is affected.
+                # Used for 0x69 Umweltsensor (channel "00" vs "01") and for
+                # 0x65/0x74 (channel "01" actor only).
                 if (
                     desc.channel_filter is None
                     or device_state.channel == desc.channel_filter

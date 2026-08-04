@@ -169,6 +169,19 @@ class DuoFernId:
 
     @property
     def is_switch(self) -> bool:
+        """Return True if this is a switch-actor device.
+
+        Special case 0x65/0x74: each has two sub-channels ("00" sensor
+        events, "01" actor/relay — see DEVICE_CHANNELS in const.py). Only
+        channel "01" is a switch actor — from 30_DUOFERN.pm:
+          %sets = (%setsSwitchActor, %setsPair)
+            if ($hash->{CODE} =~ /^(65|74)....01/);
+        Channel "00" and channel-less ids (self.channel is None) return
+        False here. 0x43/0x46/0x71 use the original device-type-only
+        check — unaffected.
+        """
+        if self.raw[0] in (0x65, 0x74):
+            return self.channel == "01"
         return self.raw[0] in SWITCH_DEVICE_TYPES
 
     @property
@@ -177,6 +190,17 @@ class DuoFernId:
 
     @property
     def is_binary_sensor(self) -> bool:
+        """Return True if this is an event-based binary sensor device.
+
+        Special case 0x65: has two sub-channels ("00" sensor events, "01"
+        actor/relay — see DEVICE_CHANNELS in const.py and is_switch above).
+        The motion-detector sensor itself belongs on channel "00"; channel
+        "01" is a switch actor instead, not a binary sensor. A channel-less
+        0x65 id (self.channel is None) returns True here, same as "00".
+        0xAB/0xAC have no channels at all — completely unaffected.
+        """
+        if self.raw[0] == 0x65:
+            return self.channel != "01"
         return self.raw[0] in BINARY_SENSOR_DEVICE_TYPES
 
     @property
@@ -185,6 +209,17 @@ class DuoFernId:
 
     @property
     def is_remote(self) -> bool:
+        """Return True if this is an event-only remote/wall-button device.
+
+        Special case 0x74: has two sub-channels ("00" button events, "01"
+        actor/relay — see DEVICE_CHANNELS in const.py and is_switch above).
+        The event-only remote behaviour belongs on channel "00"; channel
+        "01" is a switch actor instead. A channel-less 0x74 id (self.channel
+        is None) returns True here, same as "00". Every other
+        REMOTE_DEVICE_TYPES entry has no channels — unaffected.
+        """
+        if self.raw[0] == 0x74:
+            return self.channel != "01"
         return self.raw[0] in REMOTE_DEVICE_TYPES
 
     @property
