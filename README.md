@@ -42,7 +42,7 @@ Forked from @MSchenkl and extensively rewritten to aim for a complete re-impleme
 | Description | Code | HA Platform | Tested |
 |-------------|------|-------------|:------:|
 | Dimmaktor | `0x48` | `light` | ❌ |
-| Dimmer (9476-1) | `0x4A` | `light` | ❌ |
+| Dimmer (9476-1) | `0x4A` | `light` | ✅ |
 
 ### Climate / Heating
 
@@ -61,7 +61,7 @@ Forked from @MSchenkl and extensively rewritten to aim for a complete re-impleme
 | Umweltsensor | `0x69` | `sensor`, `binary_sensor`, `number`, `select`, `switch`, `text`, `button` | ✅ |
 | Sonnensensor | `0xA5` | `binary_sensor` | ✅ |
 | Sonnensensor (alt) | `0xAF` | `binary_sensor` | ❌ |
-| Sonnen-/Windsensor | `0xA9` | `binary_sensor` | ❌ |
+| Sonnen-/Windsensor | `0xA9` | `binary_sensor` | ✅ |
 | Markisenwaechter | `0xAA` | `binary_sensor` | ❌ |
 
 ### Remote Controls & Wall Buttons (event-only)

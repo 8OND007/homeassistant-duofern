@@ -135,6 +135,22 @@ class DuoFernId:
 
     @property
     def is_cover(self) -> bool:
+        """Return True if this is a cover-type device.
+
+        Special case 0x69 Umweltsensor: it is registered as two separate HA
+        devices (channel "00" weather station, channel "01" actor), both
+        sharing device_type=0x69. Only channel "01" is actually a cover —
+        from 30_DUOFERN.pm:
+          %sets = (%setsDefaultRollerShutter, %setsUmweltsensor01, %setsPair)
+            if ($hash->{CODE} =~ /^69....01/);
+          %sets = (%setsUmweltsensor00) if ($hash->{CODE} =~ /^69....00/);
+        Channel "00" gets no roller-shutter commands at all. Callers that
+        want this distinction must pass a channel-carrying DuoFernId (e.g.
+        via with_channel()) — a channel-less 0x69 id (self.channel is None)
+        returns False here, same as channel "00".
+        """
+        if self.raw[0] == 0x69:
+            return self.channel == "01"
         return self.raw[0] in COVER_DEVICE_TYPES
 
     @property

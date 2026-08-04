@@ -5,7 +5,20 @@ Supports all DuoFern cover device types and status formats:
   Format 23:  Rohrmotor-Aktor, Connect-Aktor, Troll Basis,
               Troll Comfort (0x42, 0x49, 0x4B, 0x4C, 0x70)
   Format 23a: Rohrmotor Steuerung (0x47) — format override in const.py
+              Umweltsensor (0x69) channel "01" (actor) — see below
   Format 24a: SX5 garage door (0x4E) — format override in const.py
+
+Umweltsensor (0x69) channel "01":
+  The Umweltsensor is registered as two separate HA devices: channel "00"
+  (weather station) and channel "01" (actor). Only channel "01" is a cover
+  — it gets a plain RolloTron-style set (up/down/stop/position/dusk/dawn),
+  NOT the more complex Rohrmotor/Troll set. From 30_DUOFERN.pm:
+    %sets = (%setsDefaultRollerShutter, %setsUmweltsensor01, %setsPair)
+      if ($hash->{CODE} =~ /^69....01/);
+  Notably absent from that set: reset:settings,full (see button.py, the
+  reset-button loop explicitly excludes 0x69 for this reason).
+  DuoFernId.is_cover is channel-aware for 0x69 (see protocol.py) so this
+  platform's setup loop only creates a cover for channel "01".
 
 Each device becomes one CoverEntity with:
   - Open / Close / Stop / Set Position
@@ -90,11 +103,22 @@ async def async_setup_entry(
 
     entities: list[DuoFernCover] = []
     for hex_code, device_state in coordinator.data.devices.items():
-        if device_state.device_code.is_cover:
+        # Channel-aware device code — required so is_cover can distinguish
+        # the Umweltsensor's (0x69) channel "01" (actor, IS a cover) from
+        # channel "00" (weather station, NOT a cover). For every other
+        # cover type device_state.channel is None (none of them appear in
+        # DEVICE_CHANNELS), so dc is identical to device_state.device_code
+        # and behaviour is unchanged.
+        dc = (
+            device_state.device_code.with_channel(device_state.channel)
+            if device_state.channel
+            else device_state.device_code
+        )
+        if dc.is_cover:
             entities.append(
                 DuoFernCover(
                     coordinator=coordinator,
-                    device_code=device_state.device_code,
+                    device_code=dc,
                 )
             )
             _LOGGER.debug("Adding cover entity for device %s", hex_code)
@@ -137,7 +161,10 @@ class DuoFernCover(CoordinatorEntity[DuoFernCoordinator], CoverEntity):
         super().__init__(coordinator)
 
         self._device_code = device_code
-        self._hex_code = device_code.hex
+        # full_hex includes the channel suffix when present (e.g. "01" for
+        # the Umweltsensor's actor channel) and is identical to .hex for all
+        # channel-less cover types — see is_cover's docstring in protocol.py.
+        self._hex_code = device_code.full_hex
 
         self._attr_unique_id = f"{DOMAIN}_{self._hex_code}"
 

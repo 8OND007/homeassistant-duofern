@@ -1759,8 +1759,15 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
         await self._stick.send_command(frame)
 
     def _set_moving(self, device_code: DuoFernId, moving: str) -> None:
-        """Optimistically set moving state before status arrives."""
-        state = self.data.devices.get(device_code.hex)
+        """Optimistically set moving state before status arrives.
+
+        Uses full_hex (not hex) so this also resolves channel-carrying
+        device codes — currently only the Umweltsensor's (0x69) channel
+        "01" actor, which is registered under "<hex>01" in self.data.devices.
+        full_hex equals hex when no channel is set, so every other (channel-
+        less) cover type is unaffected.
+        """
+        state = self.data.devices.get(device_code.full_hex)
         if state:
             state.status.moving = moving
             self.async_set_updated_data(self.data)

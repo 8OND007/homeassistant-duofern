@@ -95,7 +95,13 @@ async def async_setup_entry(
         # reset:settings,full for all devices that support it
         # From 30_DUOFERN.pm %setsBasic / %setsReset: covers, switches, dimmers
         # 0xE1 Heizkörperantrieb uses %setsHSA which has no reset commands
-        if (
+        # 0x69 Umweltsensor is excluded on BOTH channels: channel "00" uses
+        # %setsUmweltsensor00 (no reset), and channel "01" — despite now
+        # matching is_cover — uses %setsDefaultRollerShutter +
+        # %setsUmweltsensor01 + %setsPair, which deliberately omits
+        # %setsBasic/%setsReset (30_DUOFERN.pm line ~624), unlike every
+        # other cover type.
+        if dev_code.device_type != 0x69 and (
             dev_code.is_cover
             or dev_code.is_switch
             or dev_code.is_light
