@@ -55,7 +55,7 @@ Forked from @MSchenkl and extensively rewritten to aim for a complete re-impleme
 
 | Description | Code | HA Platform | Tested |
 |-------------|------|-------------|:------:|
-| Bewegungsmelder | `0x65` | `binary_sensor` | ❌ |
+| Bewegungsmelder | `0x65` | `binary_sensor`, `switch`, `number`, `button` | ❌ |
 | Rauchmelder | `0xAB` | `binary_sensor` | ✅ |
 | Fenster-Tür-Kontakt | `0xAC` | `binary_sensor` | ✅ |
 | Umweltsensor | `0x69` | `sensor`, `binary_sensor`, `number`, `select`, `switch`, `text`, `button` | ✅ |
@@ -64,12 +64,14 @@ Forked from @MSchenkl and extensively rewritten to aim for a complete re-impleme
 | Sonnen-/Windsensor | `0xA9` | `binary_sensor` | ✅ |
 | Markisenwaechter | `0xAA` | `binary_sensor` | ❌ |
 
+`0x65` (Bewegungsmelder) is registered as two sub-devices, same pattern as the Umweltsensor: sub-channel "00" carries the motion sensor, sub-channel "01" is a switch actor (`%setsSwitchActor` in FHEM) — on/off, dusk/dawn buttons, a stairwell timer, and automation switches. See [Switch Entities](#switch-entities-universalaktor-steckdosenaktor).
+
 ### Remote Controls & Wall Buttons (event-only)
 
 | Description | Code | Notes | Tested |
 |-------------|------|-------|:------:|
 | Wandtaster | `0xA4` | Fires `duofern_event` on the HA event bus | ❌ |
-| Wandtaster 6fach 230V | `0x74` | Fires `duofern_event` on the HA event bus | ❌ |
+| Wandtaster 6fach 230V | `0x74` | Fires `duofern_event` on the HA event bus (sub-channel "00"); sub-channel "01" is also a switch actor, same as `0x65` above | ❌ |
 | Wandtaster 6fach Bat | `0xAD` | Fires `duofern_event` on the HA event bus | ❌ |
 | Funksender UP | `0xA7` | Fires `duofern_event` on the HA event bus | ❌ |
 | Handsender (6 Gruppen / 48 Geräte) | `0xA0` | Fires `duofern_event` on the HA event bus | ✅ |
@@ -110,6 +112,17 @@ Forked from @MSchenkl and extensively rewritten to aim for a complete re-impleme
 - **Universalaktor (0x43)** — creates two separate switch entities (one per channel: 01 and 02), both grouped under the same device in HA
 - **All automation flags as attributes** — `dawnAutomatic`, `duskAutomatic`, `sunAutomatic`,
   `timeAutomatic`, `manualMode`, `sunMode`, `stairwellFunction`, `stairwellTime`, `modeChange`
+- **Bewegungsmelder (0x65) / Wandtaster 6fach 230V (0x74) — actor sub-channel "01"** — both devices
+  additionally register a switch-actor sub-device (`%setsSwitchActor` in FHEM), separate from their
+  event sub-channel "00" (motion detection / button presses — see
+  [Binary Sensor Entities](#binary-sensor-entities-motion-smoke-contact) and
+  [Remote Control Event Entities](#remote-control-event-entities)):
+  - **On / Off switch**, plus **Dusk / Dawn buttons** (see [Per-Device Buttons](#per-device-buttons))
+  - **Stairwell Time number** (0–3200 s)
+  - **Automation switches**: `dawnAutomatic`, `duskAutomatic`, `manualMode`, `sunAutomatic`,
+    `timeAutomatic`, `sunMode`, `modeChange`, `stairwellFunction`
+  - No reset buttons — like the Umweltsensor's actor channel, `%setsSwitchActor` has no
+    `reset:settings,full` command, unlike every other switch/cover type
 
 ### Light Entities (Dimmers)
 
@@ -144,7 +157,7 @@ Forked from @MSchenkl and extensively rewritten to aim for a complete re-impleme
 
 ### Binary Sensor Entities (Motion, Smoke, Contact)
 
-- **Bewegungsmelder (0x65)** — `motion` device class, state updated via `duofern_event`
+- **Bewegungsmelder (0x65)** — `motion` device class, state updated via `duofern_event`; lives on sub-channel "00" (sub-channel "01" is a switch actor, see [Switch Entities](#switch-entities-universalaktor-steckdosenaktor))
 - **Rauchmelder (0xAB)** — `smoke` device class, state updated via `duofern_event`; battery level is persisted across HA restarts
 - **Fenster-Tür-Kontakt (0xAC)** — `opening` device class; two entities per device: `opened` and `tilted`
 - **Battery sensor** — battery-powered sensors (Bewegungsmelder `0x65`, Rauchmelder `0xAB`, Fenster-Tür-Kontakt `0xAC`) get a dedicated **Battery** diagnostic sensor entity (0–100 %) visible on the device card. The last known value persists across HA restarts. `battery_state` (ok/low) is exposed as an attribute on the battery entity
@@ -260,11 +273,11 @@ Only 6-digit device codes are supported. 10-digit (2020+) devices must be paired
 
 | Button | Devices | What it does |
 |--------|---------|-------------|
-| **Dusk position** | All covers | Move to stored dusk position |
-| **Dawn position** | All covers | Move to stored dawn position |
+| **Dusk position** | All covers, plus switch actors (Universalaktor, Steckdosenaktor, and the 0x65/0x74 actor sub-channel) | Move to stored dusk position |
+| **Dawn position** | All covers, plus switch actors (Universalaktor, Steckdosenaktor, and the 0x65/0x74 actor sub-channel) | Move to stored dawn position |
 | **Toggle** | All covers | Reverse current movement / change direction |
-| **Reset settings** | Covers, switches, dimmers, climate | Reset device settings (keeps pairing) |
-| **Full reset** | Covers, switches, dimmers, climate | Factory reset (loses pairing) |
+| **Reset settings** | Covers, switches, dimmers, climate — except the Umweltsensor (0x69) and Bewegungsmelder/Wandtaster 6fach (0x65/0x74) actor sub-channels, which have no reset command | Reset device settings (keeps pairing) |
+| **Full reset** | Covers, switches, dimmers, climate — except the Umweltsensor (0x69) and Bewegungsmelder/Wandtaster 6fach (0x65/0x74) actor sub-channels, which have no reset command | Factory reset (loses pairing) |
 | **Remote pair** | All actuators | Initiate remote pairing |
 | **Remote unpair** | All actuators | Remove remote pairing |
 | **Stop remote pairing** | All actuators | End remote pair/unpair window early |
@@ -273,7 +286,7 @@ Only 6-digit device codes are supported. 10-digit (2020+) devices must be paired
 
 ### Remote Control Event Entities
 
-Each paired Handsender or Wandtaster gets a dedicated **EventEntity** in HA. When a button is pressed, the entity fires with the action (`up`, `stop`, `down`, `stepUp`, `stepDown`, `pressed`, `on`, `off`) and channel number, making it directly usable in automations via the **Device trigger** UI — no YAML required.
+Each paired Handsender or Wandtaster gets a dedicated **EventEntity** in HA. When a button is pressed, the entity fires with the action (`up`, `stop`, `down`, `stepUp`, `stepDown`, `pressed`, `on`, `off`) and channel number, making it directly usable in automations via the **Device trigger** UI — no YAML required. For the Wandtaster 6fach 230V (0x74), this lives on event sub-channel "00"; all 6 buttons are individually selectable as device triggers.
 
 ### General
 
@@ -339,6 +352,12 @@ Enter the 6-digit hex codes of your paired DuoFern devices, separated by commas:
 ```
 
 These are the device codes from your FHEM configuration (`ATTR device CODE`).
+
+This field is optional — you can leave it empty and finish setup with zero devices, then add them
+afterwards via **Settings → Devices & Services → DuoFern → Configure**, physical pairing, or
+[Pair by Code](#pair-by-code-code-pairing). Useful for a from-scratch setup with no FHEM export or
+Homepilot access to read existing codes from — see [I don't have FHEM and can't find my System
+Code anywhere](#i-dont-have-fhem-and-cant-find-my-system-code-anywhere) above.
 
 ### Managing Devices After Setup
 
