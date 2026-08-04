@@ -319,6 +319,17 @@ Go to **Settings → Devices & Services → Add Integration → DuoFern**
 - **Serial Connection** — select a local USB stick (e.g., `/dev/ttyUSB0`) from the dropdown, or type a `ser2net` network URL such as `socket://192.168.1.20:2000` or `rfc2217://192.168.1.20:2000`
 - **System Code** — the 6-digit hex dongle serial (starts with `6F`, e.g., `6F1A2B`). Find it in your previous FHEM config (`ATTR dongle CODE`) or on the stick label. To preserve all existing pairings you need to use the same code as before! Otherwise all devices have to be re-paired
 
+#### I don't have FHEM and can't find my System Code anywhere
+
+Older Homepilot versions showed the system code somewhere in their settings, but as far as we know, **current Homepilot firmware no longer exposes it anywhere in the UI**. If you never used FHEM and can't find the code in an old export, you can't recover the *original* code your devices are currently paired to — there is no way around that.
+
+You can **pick a new System Code yourself and re-pair every device.** A code is valid as long as it follows the same pattern Rademacher itself uses for its dongles: 6 hex characters, starting with `6F`, followed by 4 arbitrary hex digits — e.g. `6FA51C`, `6F0001`, `6FDEAD`. Any value matching that pattern is accepted. **This will not be the same code your devices are already paired to**, so every single device will need to be re-paired from scratch (physical pair-button press, or [Pair by Code](#pair-by-code-code-pairing) if you know the device's own 6-digit code — this does not work for 10-digit codes!) before it responds to this integration.
+
+**If Homepilot is still running and you can access it**, you can use remote-pairing for most devices instead of re-pairing everything by hand. Put a device into remote-pairing mode via Homepilot, then — once the stick is set up in HA — put the stick into pairing mode too and add devices one by one this way. A few devices don't have a remote-pair button at all, and even fewer devices don't support being bound to two hubs at once — the Heizkörperantrieb is one such exception. This way, a device ends up paired to both codes you control while Homepilot is still running, before you retire it.
+
+Either way, re-pairing itself is safe and reversible — it doesn't require FHEM and doesn't touch anything else on the device. See [Migrating from FHEM](#migrating-from-fhem) below if you *do* have an existing code and just want to reuse it without re-pairing.
+
+
 ### Step 2: Paired Devices
 
 Enter the 6-digit hex codes of your paired DuoFern devices, separated by commas:
