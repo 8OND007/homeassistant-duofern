@@ -96,7 +96,11 @@ _REMOTE_CHANNELS: dict[int, list[str]] = {
     0xA3: ["01"],  # Handsender 1 Gruppe
     0xA4: ["01"],  # Wandtaster
     0xA7: ["01"],  # Funksender UP
-    0x74: ["01"],  # Wandtaster 6fach 230V
+    # 6 physical buttons, distinguished purely by the channel byte inside
+    # each sensorMsg event frame — same model as 0xAD below, not separate
+    # HA sub-devices (FHEM %devices "chans" only pre-declares a single
+    # actor/relay sub-channel "01" for this device type).
+    0x74: ["01", "02", "03", "04", "05", "06"],  # Wandtaster 6fach 230V
     0xAD: ["01", "02", "03", "04", "05", "06"],  # Wandtaster 6fach Bat
 }
 
