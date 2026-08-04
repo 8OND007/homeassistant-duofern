@@ -42,7 +42,6 @@
       "cannot_connect": "Failed to connect to the DuoFern stick. Check the serial path or network URL.",
       "invalid_system_code": "Invalid system code. Must be 6 hex digits starting with 6F.",
       "invalid_device_code": "One or more device codes are invalid. Each must be exactly 6 hex digits.",
-      "no_devices": "Please enter at least one device code.",
       "unknown": "An unexpected error occurred."
     },
     "abort": {
