@@ -8,7 +8,7 @@
 A custom Home Assistant integration for **Rademacher DuoFern** devices via the DuoFern USB stick.
 Communicates directly with the USB stick using the native serial protocol - via local USB or a network serial server - **no cloud, no gateway, fully local**.
 
-Forked from @MSchenkl and extensively rewritten to aim for a complete re-implementation based on the FHEM modules `10_DUOFERNSTICK.pm` and `30_DUOFERN.pm`, aiming for near-complete feature parity with the FHEM DuoFern module.
+Forked from @MSchenkl and extensively rewritten to aim for a complete re-implementation based on the FHEM modules `10_DUOFERNSTICK.pm` and `30_DUOFERN.pm`, aiming for near-complete feature parity with the FHEM DuoFern module and the Homepilot / SmartHome Box.
 
 📋 **[Supported Devices & Features](docs/devices.md)** - full device matrix and per-platform entity reference
 🔧 **[Protocol Reference](docs/protocol.md)** - frame format, init sequence, boost/pairing internals
