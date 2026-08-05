@@ -5,301 +5,13 @@
 
 [![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=irstmon&repository=homeassistant-duofern&category=integration)
 
-A custom Home Assistant integration for **Rademacher DuoFern** devices via the DuoFern USB stick.  
-Communicates directly with the USB stick using the native serial protocol — via local USB or a network serial server — **no cloud, no gateway, fully local**.
+A custom Home Assistant integration for **Rademacher DuoFern** devices via the DuoFern USB stick.
+Communicates directly with the USB stick using the native serial protocol - via local USB or a network serial server - **no cloud, no gateway, fully local**.
 
 Forked from @MSchenkl and extensively rewritten to aim for a complete re-implementation based on the FHEM modules `10_DUOFERNSTICK.pm` and `30_DUOFERN.pm`, aiming for near-complete feature parity with the FHEM DuoFern module.
 
----
-
-## Supported Devices
-
-### Covers (Roller Shutters & Garage Doors)
-
-| Description | Code | HA Platform | Tested |
-|-------------|------|-------------|:------:|
-| RolloTron Standard | `0x40` | `cover` | ✅ |
-| RolloTron Comfort Slave | `0x41` | `cover` | ❌ |
-| Rohrmotor-Aktor | `0x42` | `cover` | ✅ |
-| Rohrmotor Steuerung | `0x47` | `cover` | ❌ |
-| Rohrmotor | `0x49` | `cover` | ✅ |
-| Connect-Aktor | `0x4B` | `cover` | ❌ |
-| Troll Basis | `0x4C` | `cover` | ❌ |
-| SX5 (Garage Door) | `0x4E` | `cover` | ❌ |
-| RolloTron Comfort Master | `0x61` | `cover` | ✅ |
-| Troll Comfort DuoFern | `0x70` | `cover` | ❌ |
-
-### Switches
-
-| Description | Code | HA Platform | Tested |
-|-------------|------|-------------|:------:|
-| Universalaktor (2-channel) | `0x43` | `switch` | ✅ |
-| Steckdosenaktor (also Universalaktor 1-Channel) | `0x46` | `switch` | ✅ |
-| Troll Comfort DuoFern (Lichtmodus) | `0x71` | `switch` | ❌ |
-
-### Lights / Dimmers
-
-| Description | Code | HA Platform | Tested |
-|-------------|------|-------------|:------:|
-| Dimmaktor | `0x48` | `light` | ❌ |
-| Dimmer (9476-1) | `0x4A` | `light` | ✅ |
-
-### Climate / Heating
-
-| Description | Code | HA Platform | Tested |
-|-------------|------|-------------|:------:|
-| Raumthermostat | `0x73` | `climate` | ✅ |
-| Heizkörperantrieb | `0xE1` | `climate` | ✅ |
-
-### Sensors & Detectors
-
-| Description | Code | HA Platform | Tested |
-|-------------|------|-------------|:------:|
-| Bewegungsmelder | `0x65` | `binary_sensor`, `switch`, `number`, `button` | ❌ |
-| Rauchmelder | `0xAB` | `binary_sensor` | ✅ |
-| Fenster-Tür-Kontakt | `0xAC` | `binary_sensor` | ✅ |
-| Umweltsensor | `0x69` | `sensor`, `binary_sensor`, `number`, `select`, `switch`, `text`, `button` | ✅ |
-| Sonnensensor | `0xA5` | `binary_sensor` | ✅ |
-| Sonnensensor (alt) | `0xAF` | `binary_sensor` | ❌ |
-| Sonnen-/Windsensor | `0xA9` | `binary_sensor` | ✅ |
-| Markisenwaechter | `0xAA` | `binary_sensor` | ❌ |
-
-`0x65` (Bewegungsmelder) is registered as two sub-devices, same pattern as the Umweltsensor: sub-channel "00" carries the motion sensor, sub-channel "01" is a switch actor (`%setsSwitchActor` in FHEM) — on/off, dusk/dawn buttons, a stairwell timer, and automation switches. See [Switch Entities](#switch-entities-universalaktor-steckdosenaktor).
-
-### Remote Controls & Wall Buttons (event-only)
-
-| Description | Code | Notes | Tested |
-|-------------|------|-------|:------:|
-| Wandtaster | `0xA4` | Fires `duofern_event` on the HA event bus | ❌ |
-| Wandtaster 6fach 230V | `0x74` | Fires `duofern_event` on the HA event bus (sub-channel "00"); sub-channel "01" is also a switch actor, same as `0x65` above | ❌ |
-| Wandtaster 6fach Bat | `0xAD` | Fires `duofern_event` on the HA event bus | ❌ |
-| Funksender UP | `0xA7` | Fires `duofern_event` on the HA event bus | ❌ |
-| Handsender (6 Gruppen / 48 Geräte) | `0xA0` | Fires `duofern_event` on the HA event bus | ✅ |
-| Handsender (1 Gruppe / 48 Geräte) | `0xA1` | Fires `duofern_event` on the HA event bus | ❌ |
-| Handsender (6 Gruppen / 1 Gerät) | `0xA2` | Fires `duofern_event` on the HA event bus | ❌ |
-| Handsender (1 Gruppe / 1 Gerät) | `0xA3` | Fires `duofern_event` on the HA event bus | ❌ |
-| HomeTimer | `0xA8` | Fires `duofern_event` on the HA event bus | ❌ |
-| Handzentrale | `0xE0` | Fires `duofern_event` on the HA event bus | ❌ |
-
-**USB Stick:** Rademacher DuoFern USB-Stick 7000 and 9000 (VID: `0x0403`, PID: `0x6001`)
-
----
-
-## Features
-
-### Cover Entities (Roller Shutters)
-
-- **Open / Close / Stop** — standard movement commands
-- **Set Position** — move to any position (0–100 %)
-- **Dusk position button** — move to the device's programmed dusk position using the device's built-in speed profile. Equivalent to `set DEVICE dusk` in FHEM.
-- **Dawn position button** — move to the device's programmed dawn position. Equivalent to `set DEVICE dawn` in FHEM.
-- **Toggle button** — reverse current movement / change direction
-- **Push-based state updates** — position and moving state update in real time as status frames arrive
-- **All automation flags as entity attributes** — visible on the entity detail card and usable in automations:
-  `dawnAutomatic`, `duskAutomatic`, `sunAutomatic`, `timeAutomatic`, `manualMode`, `sunMode`,
-  `ventilatingMode`, `ventilatingPosition`, `sunPosition`, `windAutomatic`, `rainAutomatic`,
-  `windMode`, `rainMode`, `windDirection`, `rainDirection`, `blindsMode`, `slatPosition`,
-  `slatRunTime`, `tiltInSunPos`, `tiltInVentPos`, `reversal`, `motorDeadTime`, `runningTime`,
-  and more — depending on device type and status format
-- **Obstacle / Block detection** — the Rohrmotor (`0x49`) and SX5 (`0x4E`) get dedicated `obstacle` and `block` binary sensor entities, usable directly as State triggers in automations. The SX5 additionally gets a `light_curtain` entity. Other cover types may support this too but are unverified — open an issue if your device reports obstacle/block in FHEM. No real frames available yet.
-- **SX5 Light Curtain** — the SX5 garage door (0x4E) additionally gets a `light_curtain` binary sensor entity
-- **Firmware version** — shown in device info after first status frame
-- **Battery state** — shown as attribute where applicable
-
-### Switch Entities (Universalaktor, Steckdosenaktor)
-
-- **On / Off** — standard switch commands
-- **Universalaktor (0x43)** — creates two separate switch entities (one per channel: 01 and 02), both grouped under the same device in HA
-- **All automation flags as attributes** — `dawnAutomatic`, `duskAutomatic`, `sunAutomatic`,
-  `timeAutomatic`, `manualMode`, `sunMode`, `stairwellFunction`, `stairwellTime`, `modeChange`
-- **Bewegungsmelder (0x65) / Wandtaster 6fach 230V (0x74) — actor sub-channel "01"** — both devices
-  additionally register a switch-actor sub-device (`%setsSwitchActor` in FHEM), separate from their
-  event sub-channel "00" (motion detection / button presses — see
-  [Binary Sensor Entities](#binary-sensor-entities-motion-smoke-contact) and
-  [Remote Control Event Entities](#remote-control-event-entities)):
-  - **On / Off switch**, plus **Dusk / Dawn buttons** (see [Per-Device Buttons](#per-device-buttons))
-  - **Stairwell Time number** (0–3200 s)
-  - **Automation switches**: `dawnAutomatic`, `duskAutomatic`, `manualMode`, `sunAutomatic`,
-    `timeAutomatic`, `sunMode`, `modeChange`, `stairwellFunction`
-  - No reset buttons — like the Umweltsensor's actor channel, `%setsSwitchActor` has no
-    `reset:settings,full` command, unlike every other switch/cover type
-
-### Light Entities (Dimmers)
-
-- **On / Off** — full on / full off
-- **Brightness control** — HA brightness (0–255) mapped to DuoFern level (0–100)
-- **All automation flags as attributes** — `dawnAutomatic`, `duskAutomatic`, `sunAutomatic`,
-  `timeAutomatic`, `manualMode`, `sunMode`, `stairwellFunction`, `stairwellTime`,
-  `intermediateMode`, `intermediateValue`, `saveIntermediateOnStop`, `runningTime`
-
-### Climate Entities (Thermostats & Radiator Valves)
-
-- **Target temperature** — set desired temperature (4.0–28.0 °C for HSA and 4.0–40.0 °C for Raumthermostat in 0.5 °C steps)
-- **Current temperature** — measured temperature from the device
-- **HVAC modes** — HEAT and OFF
-- **All readings as attributes** — `temperatureThreshold1–4`, `actTempLimit`, `output`,
-  `manualMode`, `timeAutomatic`; for the Heizkörperantrieb additionally: `sendingInterval`
-- **Manual Mode / Time Automatic switches** — `manualMode` and `timeAutomatic` are exposed as
-  configuration switch entities for both the Raumthermostat (0x73) and Heizkörperantrieb (0xE1),
-  matching the same switch pattern used for cover and switch devices
-- **Temperature zone buttons** — four buttons ("Activate Zone 1–4") on the Raumthermostat (0x73)
-  device card activate one of the four stored temperature threshold zones. Usable in automations
-  via `button.press`. The threshold values are configurable via the four number sliders
-  (`temperatureThreshold1–4`, 4.0–40.0 °C)
-- **Valve Position sensor** — dedicated sensor entity (0–100 %) for the Heizkörperantrieb (`0xE1`), visible on the device card
-- **Battery sensor** — dedicated diagnostic sensor entity for the Heizkörperantrieb (`0xE1`), reads `batteryPercent` from the status frame and persists the last known value across restarts
-- **Window Open Signal switch** — tells the Heizkörperantrieb a window is open, immediately forcing the valve to the setback temperature (4 °C). The switch reflects the **live device state** — the device echoes the last-set value back in every status frame
-- **Boost Mode** — rapidly heats a room by fully opening the valve for a configurable duration:
-  - **Boost switch** — activates / deactivates boost mode
-  - **Boost Duration number** (4–60 min) — configure the duration before activating; moving the slider alone sends nothing to the device
-  - **Boost Started sensor** (timestamp) — shows when the last boost was activated, rendered by HA as "13 minutes ago"; persists across restarts
-- **Values restored on startup** — all `0xE1` entities (climate temperatures, valve position, sending interval, boost duration) show their last known values immediately after HA restarts. Battery devices can take several minutes before their first status frame — no more `unknown` on the device card
-
-### Binary Sensor Entities (Motion, Smoke, Contact)
-
-- **Bewegungsmelder (0x65)** — `motion` device class, state updated via `duofern_event`; lives on sub-channel "00" (sub-channel "01" is a switch actor, see [Switch Entities](#switch-entities-universalaktor-steckdosenaktor))
-- **Rauchmelder (0xAB)** — `smoke` device class, state updated via `duofern_event`; battery level is persisted across HA restarts
-- **Fenster-Tür-Kontakt (0xAC)** — `opening` device class; two entities per device: `opened` and `tilted`
-- **Battery sensor** — battery-powered sensors (Bewegungsmelder `0x65`, Rauchmelder `0xAB`, Fenster-Tür-Kontakt `0xAC`) get a dedicated **Battery** diagnostic sensor entity (0–100 %) visible on the device card. The last known value persists across HA restarts. `battery_state` (ok/low) is exposed as an attribute on the battery entity
-
-### Binary Sensor Entities (Obstacle & Block Detection)
-
-Covers with obstacle detection hardware get two dedicated binary sensor entities each:
-
-| Entity | Device Class | Triggered when |
-|--------|-------------|----------------|
-| Obstacle | `problem` | Device detected an obstacle during movement |
-| Block | `problem` | Device is blocked and cannot move |
-
-The SX5 garage door (0x4E) additionally gets:
-
-| Entity | Device Class | Triggered when |
-|--------|-------------|----------------|
-| Light Curtain | `safety` | The safety light curtain is active |
-
-Devices with confirmed obstacle detection: Rohrmotor (`0x49`), SX5 (`0x4E`). Other cover types (Rohrmotor-Aktor `0x42`, Connect-Aktor `0x4B`, Troll Basis `0x4C`, Troll Comfort `0x70`) may support obstacle/block but are unverified — open an issue if your device reports these in FHEM.
-
-These entities are **fully triggerable** in HA automations as State triggers — see the [Automations](#automations) section.
-
-### Binary Sensor Entities (Sun & Wind)
-
-Environmental sensor devices expose one or two binary sensor entities depending on their capabilities:
-
-| Device | Code | Sun sensor | Wind sensor |
-|--------|------|:----------:|:-----------:|
-| RolloTron Comfort Master (built-in) | `0x61` | ✅ | — |
-| Sonnensensor | `0xA5` / `0xAF` | ✅ | — |
-| Sonnen-/Windsensor | `0xA9` | ✅ | ✅ |
-| Markisenwaechter | `0xAA` | — | ✅ |
-
-Sun and wind sensor states are preserved across HA restarts via `RestoreEntity`.
-
-### Weather Station Entities (Umweltsensor 0x69)
-
-The Umweltsensor exposes two sub-devices: the weather station sub-channel ("00", read-only sensors + config) and the actor sub-channel ("01", a Rohrmotor/Troll-style output driven by the wind/rain/sun/dusk/dawn triggers).
-
-#### Sub-Channel "00" — Weather Station
-
-One sensor entity per measurement, updated from the weather frame:
-
-| Sensor | Unit | Device Class |
-|--------|------|-------------|
-| Brightness (Helligkeit) | lux | `illuminance` |
-| Temperature (Temperatur) | °C | `temperature` |
-| Wind Speed | m/s | `wind_speed` |
-| Sun Direction (Sonnenrichtung) | ° | — |
-| Sun Height (Sonnenhöhe) | ° | — |
-
-- **Rain Detected** — `moisture` binary sensor. Updated from the `isRaining` bit in every weather frame AND from `startRain`/`endRain` sensorMsg threshold events (same Grenzwert-bitmask mechanism as below). The verified weather-frame bit always wins: it force-clears any threshold-event state whenever it reports no rain, so the sensor can never get stuck "raining" for longer than one weather-frame interval (~1 min).
-- **Active-Grenzwerte sensors (Sun / Wind / Temperature)** — three sensors report which of the up to 5 configured trigger thresholds ("Grenzwerte") are currently active, as a comma-joined list (e.g. `"1,3"`), decoded from the sensorMsg channel bitmask. Use a template condition in automations to filter by a specific Grenzwert, e.g. `{{ '3' in states('sensor...wind_grenzwerte').split(',') }}` — or use the per-Grenzwert **device automation triggers** described below instead, which don't need a template.
-- **Dawn/Dusk event entity** — a single `Dawn/Dusk` event entity fires `dawn` or `dusk` when the corresponding sensorMsg (0713/0709) arrives; FHEM has no "end" message for these two, so they're a momentary event rather than a persistent sensor. Which Grenzwert(e) fired is included as event data (`grenzwerte: "1,3"`).
-- **Device Date / Device Time** — diagnostic sensors populated by pressing the **Get Time** button; reflect the Umweltsensor's own internal clock.
-- **Buttons** — **Get Weather**, **Get Time**, **Get Config**, **Write Config**, **Set Time** (pushes the current HA time to the device).
-
-**Automation triggers for Sonne/Wind/Temperatur/Morgendämmerung/Abenddämmerung**: each of these five groups offers 5 (or 10, for the start/end pairs) dedicated device automation triggers — one per Grenzwert slot, clearly labelled e.g. "Wind Grenzwert 3 – Start", "Temperatur Grenzwert 1 – Überschritten", "Morgendämmerung Grenzwert 2 – Ausgelöst". Pick "Device" as the trigger type in the automation editor, select the Umweltsensor's weather-station device, then choose the specific Grenzwert/subtype combination from the dropdown — no template needed. Regen only has a flat Start/Ende trigger (no Grenzwert list, matching Homepilot's own single on/off toggle for rain).
-
-Config entities (read via **Get Config**, written to the device via the **Write Config** button):
-
-| Entity | Type | Description |
-|--------|------|-------------|
-| Transmit Interval | Select | How often the device sends weather frames, or "off" |
-| DCF Time Sync | Switch | Enable/disable DCF77 time synchronisation |
-| Trigger Rain | Switch | Enable/disable the rain trigger |
-| Latitude / Longitude | Number | Location used for sun position calculation |
-| Timezone Offset | Number | Timezone offset (0–23) used for sun calculations |
-| Grenzwert Slot (Wind / Temperature / Dawn / Dusk / Sun) | Select | Picks which of the 5 trigger slots the controls below act on — a local HA UI concept, not written to the device |
-| Trigger Active | Switch | Enable/disable the currently selected Grenzwert slot (per group) |
-| Target Value (Wind speed / Temperature / Dawn brightness / Dusk brightness / Sun brightness / Sun detection delay / Shadow detection delay / Sun minimum temperature) | Number | The threshold value for the currently selected Grenzwert slot |
-| Sun Direction Target Angle / Width, Sun Height Target / Width | Select | Fixed, Homepilot-confirmed discrete options for the currently selected Sun Grenzwert slot |
-| Sun Link Temperature | Switch | Couples the Sun trigger to a minimum temperature ("Mit Temperatur verknüpfen") |
-
-#### Sub-Channel "01" — Actor
-
-Behaves like a Rohrmotor/Troll cover output, driven by the sub-channel "00" triggers:
-
-| Entity | Type | Description |
-|--------|------|-------------|
-| Running Time | Number | Motor running time (0–100 s) |
-| Sun Position / Ventilating Position | Number | Target positions (0–100 %) |
-| Wind Direction / Rain Direction | Select | Movement direction (`up`/`down`) on wind/rain trigger |
-| Wind Automatic / Rain Automatic / Wind Mode / Rain Mode / Reversal | Switch | Wind/rain automation flags |
-| Manual Mode / Time Automatic / Dawn Automatic / Dusk Automatic / Sun Automatic / Sun Mode / Ventilating Mode | Switch | Standard cover automation flags |
-
-### Stick Control Buttons
-
-These buttons appear on the **DuoFern Stick device card**:
-
-| Button | What it does |
-|--------|-------------|
-| **Start pairing** | Opens a 60-second pairing window. Press the pair button on a new DuoFern device to add it. The device is auto-added to the config on success. |
-| **Start unpairing** | Opens a 60-second unpairing window. Press the unpair button on a paired device to remove it. The device is auto-removed from the config on success. |
-| **Stop Pairing/Unpairing** | Stops the active pairing or unpairing window early. Only available when a window is open. |
-| **Status Broadcast** | Sends a broadcast status request to all paired devices, refreshing all states in HA. |
-
-### Pair by Code (Code-Pairing)
-
-Pair DuoFern devices by entering their 6-digit device code — **no physical button press required**. This replicates the Rademacher Homepilot "Code anmelden" functionality.
-
-**How to use:**
-
-1. Put the device in pairing mode (within 2 hours of power-on, or set to RemotePair)
-2. Enter the 6-digit hex code (printed on the device) in the **"Pair by Code"** text field on the stick device card
-3. Press the **"Pair by Code"** button
-4. If successful, the device is added automatically and the integration reloads
-
-Only 6-digit device codes are supported. 10-digit (2020+) devices must be paired using button press method.
-
-### Per-Device Buttons
-
-| Button | Devices | What it does |
-|--------|---------|-------------|
-| **Dusk position** | All covers, plus switch actors (Universalaktor, Steckdosenaktor, and the 0x65/0x74 actor sub-channel) | Move to stored dusk position |
-| **Dawn position** | All covers, plus switch actors (Universalaktor, Steckdosenaktor, and the 0x65/0x74 actor sub-channel) | Move to stored dawn position |
-| **Toggle** | All covers | Reverse current movement / change direction |
-| **Reset settings** | Covers, switches, dimmers, climate — except the Umweltsensor (0x69) and Bewegungsmelder/Wandtaster 6fach (0x65/0x74) actor sub-channels, which have no reset command | Reset device settings (keeps pairing) |
-| **Full reset** | Covers, switches, dimmers, climate — except the Umweltsensor (0x69) and Bewegungsmelder/Wandtaster 6fach (0x65/0x74) actor sub-channels, which have no reset command | Factory reset (loses pairing) |
-| **Remote pair** | All actuators | Initiate remote pairing |
-| **Remote unpair** | All actuators | Remove remote pairing |
-| **Stop remote pairing** | All actuators | End remote pair/unpair window early |
-| **Get status** | All actuators | Request current status from this device |
-| **Activate Zone 1–4** | Raumthermostat (0x73) | Activate one of the four temperature threshold zones (`actTempLimit`) |
-
-### Remote Control Event Entities
-
-Each paired Handsender or Wandtaster gets a dedicated **EventEntity** in HA. When a button is pressed, the entity fires with the action (`up`, `stop`, `down`, `stepUp`, `stepDown`, `pressed`, `on`, `off`) and channel number, making it directly usable in automations via the **Device trigger** UI — no YAML required. For the Wandtaster 6fach 230V (0x74), this lives on event sub-channel "00"; all 6 buttons are individually selectable as device triggers.
-
-### General
-
-- **Push-based, no polling** — devices push status updates; HA reflects changes immediately
-- **Status broadcast on startup** — on integration load, a full status broadcast ensures all device states are current
-- **USB auto-discovery** — the stick is detected automatically via USB VID/PID when plugged in
-- **Network serial support** — connect via `ser2net` using `socket://host:port` (recommended) or `rfc2217://host:port` URLs; useful for virtualised HA environments where the USB stick is on another machine
-- **Battery sensor entity** — all battery-powered devices get a dedicated **Battery** diagnostic sensor entity on the device card. The last known value persists across HA restarts
-- **Last Seen sensor** — every device gets a `Last Seen` timestamp sensor that updates whenever a frame is received, with `RestoreEntity` persistence
-- **Automatic device discovery** *(opt-in)* — unknown devices that send frames but are not yet in your paired list automatically appear in the HA Discovered inbox. Enable under **Settings → Devices & Services → DuoFern → Configure**. See [Automatic Device Discovery](#automatic-device-discovery) below
-- **Auto-add on pairing** — when a new device is learned via the stick's pairing button, its hex code is automatically written into the config and the integration reloads. No more digging through logs
-- **Auto-remove on unpairing** — when a device is unpaired during an active unpairing window, it is automatically removed from the config and the integration reloads
-- **Pair by Code** — pair devices by entering their 6-digit code directly in the UI, no button press on the device required. Replicates the Homepilot "Code anmelden" functionality
+📋 **[Supported Devices & Features](docs/devices.md)** - full device matrix and per-platform entity reference
+🔧 **[Protocol Reference](docs/protocol.md)** - frame format, init sequence, boost/pairing internals
 
 ---
 
@@ -329,18 +41,18 @@ Then restart Home Assistant.
 
 Go to **Settings → Devices & Services → Add Integration → DuoFern**
 
-- **Serial Connection** — select a local USB stick (e.g., `/dev/ttyUSB0`) from the dropdown, or type a `ser2net` network URL such as `socket://192.168.1.20:2000` or `rfc2217://192.168.1.20:2000`
-- **System Code** — the 6-digit hex dongle serial (starts with `6F`, e.g., `6F1A2B`). Find it in your previous FHEM config (`ATTR dongle CODE`) or on the stick label. To preserve all existing pairings you need to use the same code as before! Otherwise all devices have to be re-paired
+- **Serial Connection** - select a local USB stick (e.g., `/dev/ttyUSB0`) from the dropdown, or type a `ser2net` network URL such as `socket://192.168.1.20:2000` or `rfc2217://192.168.1.20:2000`
+- **System Code** - the 6-digit hex dongle serial (starts with `6F`, e.g., `6F1A2B`). Find it in your previous FHEM config (`ATTR dongle CODE`) or on the stick label. To preserve all existing pairings you need to use the same code as before! Otherwise all devices have to be re-paired
 
 #### I don't have FHEM and can't find my System Code anywhere
 
-Older Homepilot versions showed the system code somewhere in their settings, but as far as we know, **current Homepilot firmware no longer exposes it anywhere in the UI**. If you never used FHEM and can't find the code in an old export, you can't recover the *original* code your devices are currently paired to — there is no way around that.
+Older Homepilot versions showed the system code somewhere in their settings, but as far as we know, **current Homepilot firmware no longer exposes it anywhere in the UI**. If you never used FHEM and can't find the code in an old export, you can't recover the *original* code your devices are currently paired to - there is no way around that.
 
-You can **pick a new System Code yourself and re-pair every device.** A code is valid as long as it follows the same pattern Rademacher itself uses for its dongles: 6 hex characters, starting with `6F`, followed by 4 arbitrary hex digits — e.g. `6FA51C`, `6F0001`, `6FDEAD`. Any value matching that pattern is accepted. **This will not be the same code your devices are already paired to**, so every single device will need to be re-paired from scratch (physical pair-button press, or [Pair by Code](#pair-by-code-code-pairing) if you know the device's own 6-digit code — this does not work for 10-digit codes!) before it responds to this integration.
+You can **pick a new System Code yourself and re-pair every device.** A code is valid as long as it follows the same pattern Rademacher itself uses for its dongles: 6 hex characters, starting with `6F`, followed by 4 arbitrary hex digits - e.g. `6FA51C`, `6F0001`, `6FDEAD`. Any value matching that pattern is accepted. **This will not be the same code your devices are already paired to**, so every single device will need to be re-paired from scratch (physical pair-button press, or [Pair by Code](#pair-by-code-code-pairing) if you know the device's own 6-digit code - this does not work for 10-digit codes!) before it responds to this integration.
 
-**If Homepilot is still running and you can access it**, you can use remote-pairing for most devices instead of re-pairing everything by hand. Put a device into remote-pairing mode via Homepilot, then — once the stick is set up in HA — put the stick into pairing mode too and add devices one by one this way. A few devices don't have a remote-pair button at all, and even fewer devices don't support being bound to two hubs at once — the Heizkörperantrieb is one such exception. This way, a device ends up paired to both codes you control while Homepilot is still running, before you retire it.
+**If Homepilot is still running and you can access it**, you can use remote-pairing for most devices instead of re-pairing everything by hand. Put a device into remote-pairing mode via Homepilot, then - once the stick is set up in HA - put the stick into pairing mode too and add devices one by one this way. A few devices don't have a remote-pair button at all, and even fewer devices don't support being bound to two hubs at once - the Heizkörperantrieb is one such exception. This way, a device ends up paired to both codes you control while Homepilot is still running, before you retire it.
 
-Either way, re-pairing itself is safe and reversible — it doesn't require FHEM and doesn't touch anything else on the device. See [Migrating from FHEM](#migrating-from-fhem) below if you *do* have an existing code and just want to reuse it without re-pairing.
+Either way, re-pairing itself is safe and reversible - it doesn't require FHEM and doesn't touch anything else on the device. See [Migrating from FHEM](#migrating-from-fhem) below if you *do* have an existing code and just want to reuse it without re-pairing.
 
 
 ### Step 2: Paired Devices
@@ -353,10 +65,10 @@ Enter the 6-digit hex codes of your paired DuoFern devices, separated by commas:
 
 These are the device codes from your FHEM configuration (`ATTR device CODE`).
 
-This field is optional — you can leave it empty and finish setup with zero devices, then add them
+This field is optional - you can leave it empty and finish setup with zero devices, then add them
 afterwards via **Settings → Devices & Services → DuoFern → Configure**, physical pairing, or
 [Pair by Code](#pair-by-code-code-pairing). Useful for a from-scratch setup with no FHEM export or
-Homepilot access to read existing codes from — see [I don't have FHEM and can't find my System
+Homepilot access to read existing codes from - see [I don't have FHEM and can't find my System
 Code anywhere](#i-dont-have-fhem-and-cant-find-my-system-code-anywhere) above.
 
 ### Managing Devices After Setup
@@ -393,15 +105,15 @@ For RFC2217, change the accepter to `telnet(rfc2217),tcp,2000` and use:
 rfc2217://192.168.1.20:2000
 ```
 
-Raw TCP (`socket://`) is recommended — it uses the same fast async transport as a direct USB connection. Only one client should access the stick at a time. The examples above do not add encryption or authentication; keep the connection on a trusted network.
+Raw TCP (`socket://`) is recommended - it uses the same fast async transport as a direct USB connection. Only one client should access the stick at a time. The examples above do not add encryption or authentication; keep the connection on a trusted network.
 
 ### Automatic Device Discovery
 
 If you enable **"Automatically discover unknown devices"** in the options, any DuoFern device that sends a frame but is not yet in your paired list will automatically appear in **Settings → Devices & Services → Discovered**:
 
-- The device is only shown if its type is recognized (known Rademacher device — not radio noise)
+- The device is only shown if its type is recognized (known Rademacher device - not radio noise)
 - Click **Add** to add it to your paired list and reload the integration
-- Click **Ignore** to permanently suppress it — HA handles this natively and it will never reappear
+- Click **Ignore** to permanently suppress it - HA handles this natively and it will never reappear
 
 This is useful if you forgot to add a device code during setup, or want to discover the hex code of a device without looking it up in FHEM.
 
@@ -411,8 +123,51 @@ This is useful if you forgot to add a device code during setup, or want to disco
 
 1. Note your system code and all device codes from FHEM (`list TYPE=DUOFERN`)
 2. Install this integration and enter the same codes during setup
-3. Device pairing is stored in the DuoFern devices themselves and tied to the system code — **as long as you use the same system code during setup, all previously paired devices will respond without re-pairing. No re-pairing needed**
+3. Device pairing is stored in the DuoFern devices themselves and tied to the system code - **as long as you use the same system code during setup, all previously paired devices will respond without re-pairing. No re-pairing needed**
 4. All device states are refreshed automatically via the startup status broadcast
+
+---
+
+## Additional Features
+
+### Stick Control Buttons
+
+These buttons appear on the **DuoFern Stick device card**:
+
+| Button | What it does |
+|--------|-------------|
+| **Start pairing** | Opens a 60-second pairing window. Press the pair button on a new DuoFern device to add it. The device is auto-added to the config on success. |
+| **Start unpairing** | Opens a 60-second unpairing window. Press the unpair button on a paired device to remove it. The device is auto-removed from the config on success. |
+| **Stop Pairing/Unpairing** | Stops the active pairing or unpairing window early. Only available when a window is open. |
+| **Status Broadcast** | Sends a broadcast status request to all paired devices, refreshing all states in HA. |
+
+### Pair by Code (Code-Pairing)
+
+Pair DuoFern devices by entering their 6-digit device code - **no physical button press required**. This replicates the Rademacher Homepilot "Code anmelden" functionality.
+
+**How to use:**
+
+1. Put the device in pairing mode (within 2 hours of power-on, or set to RemotePair)
+2. Enter the 6-digit hex code (printed on the device) in the **"Pair by Code"** text field on the stick device card
+3. Press the **"Pair by Code"** button
+4. If successful, the device is added automatically and the integration reloads
+
+Only 6-digit device codes are supported. 10-digit (2020+) devices must be paired using button press method.
+
+See [Per-Device Buttons](docs/devices.md#per-device-buttons) and [Remote Control Event Entities](docs/devices.md#remote-control-event-entities) in the devices reference for the full per-device button and event-entity list.
+
+### General
+
+- **Push-based, no polling** - devices push status updates; HA reflects changes immediately
+- **Status broadcast on startup** - on integration load, a full status broadcast ensures all device states are current
+- **USB auto-discovery** - the stick is detected automatically via USB VID/PID when plugged in
+- **Network serial support** - connect via `ser2net` using `socket://host:port` (recommended) or `rfc2217://host:port` URLs; useful for virtualised HA environments where the USB stick is on another machine
+- **Battery sensor entity** - all battery-powered devices get a dedicated **Battery** diagnostic sensor entity on the device card. The last known value persists across HA restarts
+- **Last Seen sensor** - every device gets a `Last Seen` timestamp sensor that updates whenever a frame is received, with `RestoreEntity` persistence
+- **Automatic device discovery** *(opt-in)* - unknown devices that send frames but are not yet in your paired list automatically appear in the HA Discovered inbox. Enable under **Settings → Devices & Services → DuoFern → Configure**. See [Automatic Device Discovery](#automatic-device-discovery) above
+- **Auto-add on pairing** - when a new device is learned via the stick's pairing button, its hex code is automatically written into the config and the integration reloads. No more digging through logs
+- **Auto-remove on unpairing** - when a device is unpaired during an active unpairing window, it is automatically removed from the config and the integration reloads
+- **Pair by Code** - pair devices by entering their 6-digit code directly in the UI, no button press on the device required. Replicates the Homepilot "Code anmelden" functionality
 
 ---
 
@@ -431,7 +186,7 @@ action:
       entity_id: cover.duofern_rohrmotor_xxxxxx
   - service: notify.notify
     data:
-      message: "Obstacle detected — shutter re-opened."
+      message: "Obstacle detected - shutter re-opened."
 ```
 
 ### React to remote control button presses (event trigger)
@@ -446,7 +201,7 @@ trigger:
       channel: "01"
 ```
 
-Or use the **Device trigger** UI in the automation editor — no YAML needed.
+Or use the **Device trigger** UI in the automation editor - no YAML needed.
 
 ### Check whether an automation flag is active
 
@@ -456,88 +211,6 @@ condition:
     value_template: >
       {{ state_attr('cover.rollotron_living_room', 'sunAutomatic') == 'on' }}
 ```
-
----
-
-## CLI Tools
-
-The `tools/` directory contains standalone Python scripts for testing and device management without Home Assistant.
-
-> **Important Note:** The HA integration must be stopped while using CLI tools — only one process can hold the serial port at a time.
-
-### Requirements
-
-```bash
-pip install pyserial pyserial-asyncio-fast
-```
-
-> **HAOS (Home Assistant OS) Note:** On HAOS the system Python is externally managed. You need to run:
-> ```bash
-> apk add py3-pip
-> pip install --break-system-packages pyserial-asyncio-fast
-> ```
-> This is only needed for the CLI tools. The integration itself installs dependencies automatically via `manifest.json`.
-
-### test_duofern.py — Test Script
-
-Control roller shutters directly from the command line:
-
-```bash
-python3 tools/test_duofern.py 4053B8 up           # Open one shutter
-python3 tools/test_duofern.py 4053B8 down          # Close one shutter
-python3 tools/test_duofern.py 4053B8 stop          # Stop one shutter
-python3 tools/test_duofern.py 4053B8 position 50   # Set one to 50%
-python3 tools/test_duofern.py 4053B8 status        # Status of one device
-python3 tools/test_duofern.py up                   # Open ALL shutters
-python3 tools/test_duofern.py down                 # Close ALL shutters
-python3 tools/test_duofern.py position 50          # Set ALL to 50%
-python3 tools/test_duofern.py status               # Status of ALL devices
-python3 tools/test_duofern.py statusall            # Broadcast status request
-python3 tools/test_duofern.py --port socket://192.168.1.20:2000 statusall  # Via ser2net
-```
-
-### pair_duofern.py — Pairing Tool
-
-Pair and unpair DuoFern devices without FHEM:
-
-```bash
-python3 tools/pair_duofern.py pair              # Start pairing (60s window)
-python3 tools/pair_duofern.py unpair            # Start unpairing
-python3 tools/pair_duofern.py list              # List all devices with status
-python3 tools/pair_duofern.py pair --timeout 120 -v  # Extended timeout + debug
-python3 tools/pair_duofern.py --port socket://192.168.1.20:2000 list  # Via ser2net
-```
-
----
-
-## Protocol
-
-- **Frame format**: Fixed 22-byte (44 hex char) frames over UART at 115200 baud
-- **Init sequence**: 7-step handshake (Init1 → Init2 → SetDongle → Init3 → SetPairs → InitEnd → StatusBroadcast)
-- **ACK-gated send queue**: One command in-flight at a time, 5-second timeout
-- **Push-based updates**: Devices send status frames proactively; coordinator calls `async_set_updated_data()` on each received frame
-- **Position convention**: DuoFern 0 = open / 100 = closed; HA 0 = closed / 100 = open (inverted transparently)
-- **HSA (Heizkörperantrieb)**: Device-initiated bidirectional protocol — changes are queued and transmitted only when the device checks in with a status frame, matching FHEM's `%commandsHSA` / `HSAold` implementation
-- **Boost frame layout** (OTA-verified via rtl_433):
-  - ON: `f[8] = 0x40 | duration_min` (only if duration changed, else `0x00`), `f[11] = 0x03`; `sv` contains desired-temp only if it was changed, else `0x000000`
-  - OFF: `f[8] = 0x00`, `f[11] = 0x02` (critical — `0x00` is silently ignored by the device)
-- **Code-Pairing protocol** (OTA-verified via rtl_433):
-  - USB frame byte 21 (flags) controls `pay[0]` in the radio frame: `0x00` = normal command, `0x01` = pairing mode
-  - Sequence: SetPairs (0x03) → StartPair (0x04) → RemotePair ×2 (0x0D, flags=0x01) → wait for 0x06 response → StopPair (0x05)
-  - The stick must be in pairing mode (StartPair) before sending the pair frame
-  - `f[1]=0xFF` required for correct radio payload mapping (`pay[7]=FF`)
-
-#### Sniffing DuoFern Radio Frames (rtl_433)
-
-To capture raw OTA frames with an RTL-SDR dongle (thanks a lot to gluap from pyduofern-hacs for writing down his command and pointing me to it):
-
-```bash
-rtl_433 -s 2.0M -f 434.5M -g 30 \
-  -X "n=duofern,m=FSK_MC_ZEROBIT,s=10,r=100,preamble={10}fd4,invert" \
-  -S known
-```
-
-Implementation based on `10_DUOFERNSTICK.pm` and `30_DUOFERN.pm` from the FHEM project.
 
 ---
 
@@ -552,4 +225,4 @@ On a personal note: the use of AI tools doesn’t mean this project was quick or
 
 ## License
 
-MIT License — see [LICENSE](LICENSE) for details.
+MIT License - see [LICENSE](LICENSE) for details.
