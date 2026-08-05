@@ -1,0 +1,41 @@
+# Protocol
+
+Technical reference for the DuoFern serial protocol as implemented by this integration. See the [main README](../README.md) for installation and configuration, and [Supported Devices & Features](devices.md) for the entity/device reference.
+
+---
+
+- **Frame format**: Fixed 22-byte (44 hex char) frames over UART at 115200 baud
+- **Init sequence**: 7-step handshake (Init1 → Init2 → SetDongle → Init3 → SetPairs → InitEnd → StatusBroadcast)
+- **ACK-gated send queue**: One command in-flight at a time, 5-second timeout
+- **Push-based updates**: Devices send status frames proactively; coordinator calls `async_set_updated_data()` on each received frame
+- **Position convention**: DuoFern 0 = open / 100 = closed; HA 0 = closed / 100 = open (inverted transparently)
+- **HSA (Heizkörperantrieb)**: Device-initiated bidirectional protocol - changes are queued and transmitted only when the device checks in with a status frame, matching FHEM's `%commandsHSA` / `HSAold` implementation
+- **Boost frame layout** (OTA-verified via rtl_433):
+  - ON: `f[8] = 0x40 | duration_min` (only if duration changed, else `0x00`), `f[11] = 0x03`; `sv` contains desired-temp only if it was changed, else `0x000000`
+  - OFF: `f[8] = 0x00`, `f[11] = 0x02` (critical - `0x00` is silently ignored by the device)
+- **Code-Pairing protocol** (OTA-verified via rtl_433):
+  - USB frame byte 21 (flags) controls `pay[0]` in the radio frame: `0x00` = normal command, `0x01` = pairing mode
+  - Sequence: SetPairs (0x03) → StartPair (0x04) → RemotePair ×2 (0x0D, flags=0x01) → wait for 0x06 response → StopPair (0x05)
+  - The stick must be in pairing mode (StartPair) before sending the pair frame
+  - `f[1]=0xFF` required for correct radio payload mapping (`pay[7]=FF`)
+
+## Sniffing DuoFern Radio Frames (rtl_433)
+
+To capture raw OTA frames with an RTL-SDR dongle (thanks a lot to gluap from pyduofern-hacs for writing down his command and pointing me to it):
+
+```bash
+rtl_433 -s 2.0M -f 434.5M -g 30 \
+  -X "n=duofern,m=FSK_MC_ZEROBIT,s=10,r=100,preamble={10}fd4,invert" \
+  -S known
+```
+
+Implementation based on `10_DUOFERNSTICK.pm` and `30_DUOFERN.pm` from the FHEM project.
+
+---
+
+## AI disclaimer
+Yes, this project does make use of LLMs and coding agents, and this will likely continue going forward. AI is integrated deliberately and with care.
+
+If you use AI tools, please do so responsibly and transparently.
+
+On a personal note: the use of AI tools doesn’t mean this project was quick or effortless to build. A lot of time and dedication went into it.
