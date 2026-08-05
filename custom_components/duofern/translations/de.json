@@ -42,7 +42,6 @@
       "cannot_connect": "Verbindung zum DuoFern-Stick fehlgeschlagen. Überprüfen Sie den seriellen Pfad oder die Netzwerk-URL.",
       "invalid_system_code": "Ungültiger Systemcode. Muss 6 Hex-Ziffern haben und mit 6F beginnen.",
       "invalid_device_code": "Ein oder mehrere Gerätecodes sind ungültig. Jeder muss genau 6 Hex-Ziffern haben.",
-      "no_devices": "Bitte geben Sie mindestens einen Gerätecode ein.",
       "unknown": "Ein unerwarteter Fehler ist aufgetreten."
     },
     "abort": {
@@ -245,6 +244,30 @@
       },
       "boost": {
         "name": "Boost"
+      },
+      "wind_grenzwert_aktiv": {
+        "name": "Wind Grenzwert Aktiv"
+      },
+      "temperature_grenzwert_aktiv": {
+        "name": "Temperatur Grenzwert Aktiv"
+      },
+      "dawn_grenzwert_aktiv": {
+        "name": "Morgendämmerung Grenzwert Aktiv"
+      },
+      "dusk_grenzwert_aktiv": {
+        "name": "Abenddämmerung Grenzwert Aktiv"
+      },
+      "sun_grenzwert_aktiv": {
+        "name": "Sonne Grenzwert Aktiv"
+      },
+      "sun_temperatur_verknuepfen": {
+        "name": "Sonne Mit Temperatur verknüpfen"
+      },
+      "sun_direction_nutzen": {
+        "name": "Sonnenrichtung nutzen"
+      },
+      "sun_height_nutzen": {
+        "name": "Sonnenhöhe nutzen"
       }
     },
     "number": {
@@ -301,6 +324,30 @@
       },
       "boost_duration": {
         "name": "Boost-Dauer"
+      },
+      "wind_grenzwert_value": {
+        "name": "Wind Zielwert"
+      },
+      "temperature_grenzwert_value": {
+        "name": "Temperatur Zielwert"
+      },
+      "dawn_grenzwert_value": {
+        "name": "Morgendämmerung Helligkeit"
+      },
+      "dusk_grenzwert_value": {
+        "name": "Abenddämmerung Helligkeit"
+      },
+      "sun_grenzwert_klux": {
+        "name": "Sonne Helligkeit"
+      },
+      "sun_grenzwert_sun_minutes": {
+        "name": "Sonne erkennen nach"
+      },
+      "sun_grenzwert_shadow_minutes": {
+        "name": "Schatten erkennen nach"
+      },
+      "sun_grenzwert_temp": {
+        "name": "Sonne Ab Temperatur von"
       }
     },
     "select": {
@@ -373,6 +420,33 @@
           "90": "90 Min.",
           "100": "100 Min."
         }
+      },
+      "wind_grenzwert": {
+        "name": "Wind Grenzwert"
+      },
+      "temperature_grenzwert": {
+        "name": "Temperatur Grenzwert"
+      },
+      "dawn_grenzwert": {
+        "name": "Morgendämmerung Grenzwert"
+      },
+      "dusk_grenzwert": {
+        "name": "Abenddämmerung Grenzwert"
+      },
+      "sun_grenzwert": {
+        "name": "Sonne Grenzwert"
+      },
+      "sun_direction_width": {
+        "name": "Sonnenrichtung Bereich"
+      },
+      "sun_height_target": {
+        "name": "Sonnenhöhe Zielhöhe"
+      },
+      "sun_height_width": {
+        "name": "Sonnenhöhe Bereich"
+      },
+      "sun_direction_angle": {
+        "name": "Sonnenrichtung Zielrichtung"
       }
     },
     "sensor": {
@@ -402,11 +476,25 @@
       },
       "boost_started": {
         "name": "Boost gestartet"
+      },
+      "sun_grenzwerte": {
+        "name": "Sonne Grenzwerte"
+      },
+      "wind_grenzwerte": {
+        "name": "Wind Grenzwerte"
+      },
+      "temperature_grenzwerte": {
+        "name": "Temperatur Grenzwerte"
       }
     },
     "text": {
       "pair_code_input": {
         "name": "Gerätecode-Eingabe"
+      }
+    },
+    "event": {
+      "dawn_dusk": {
+        "name": "Morgen-/Abenddämmerung"
       }
     }
   },
@@ -419,7 +507,34 @@
       "channel_05": "Kanal 5 – {subtype}",
       "channel_06": "Kanal 6 – {subtype}",
       "sun": "Sonne – {subtype}",
-      "wind": "Wind – {subtype}"
+      "wind": "Wind – {subtype}",
+      "rain": "Regen – {subtype}",
+      "temperature": "Temperatur – {subtype}",
+      "sun_1": "Sonne Grenzwert 1 – {subtype}",
+      "sun_2": "Sonne Grenzwert 2 – {subtype}",
+      "sun_3": "Sonne Grenzwert 3 – {subtype}",
+      "sun_4": "Sonne Grenzwert 4 – {subtype}",
+      "sun_5": "Sonne Grenzwert 5 – {subtype}",
+      "wind_1": "Wind Grenzwert 1 – {subtype}",
+      "wind_2": "Wind Grenzwert 2 – {subtype}",
+      "wind_3": "Wind Grenzwert 3 – {subtype}",
+      "wind_4": "Wind Grenzwert 4 – {subtype}",
+      "wind_5": "Wind Grenzwert 5 – {subtype}",
+      "temperature_1": "Temperatur Grenzwert 1 – {subtype}",
+      "temperature_2": "Temperatur Grenzwert 2 – {subtype}",
+      "temperature_3": "Temperatur Grenzwert 3 – {subtype}",
+      "temperature_4": "Temperatur Grenzwert 4 – {subtype}",
+      "temperature_5": "Temperatur Grenzwert 5 – {subtype}",
+      "dawn_1": "Morgendämmerung Grenzwert 1 – {subtype}",
+      "dawn_2": "Morgendämmerung Grenzwert 2 – {subtype}",
+      "dawn_3": "Morgendämmerung Grenzwert 3 – {subtype}",
+      "dawn_4": "Morgendämmerung Grenzwert 4 – {subtype}",
+      "dawn_5": "Morgendämmerung Grenzwert 5 – {subtype}",
+      "dusk_1": "Abenddämmerung Grenzwert 1 – {subtype}",
+      "dusk_2": "Abenddämmerung Grenzwert 2 – {subtype}",
+      "dusk_3": "Abenddämmerung Grenzwert 3 – {subtype}",
+      "dusk_4": "Abenddämmerung Grenzwert 4 – {subtype}",
+      "dusk_5": "Abenddämmerung Grenzwert 5 – {subtype}"
     },
     "trigger_subtype": {
       "up": "Hoch",
@@ -431,7 +546,10 @@
       "on": "Ein",
       "off": "Aus",
       "start": "Start",
-      "end": "Ende"
+      "end": "Ende",
+      "exceeded": "Überschritten",
+      "undercut": "Unterschritten",
+      "triggered": "Ausgelöst"
     }
   },
   "services": {

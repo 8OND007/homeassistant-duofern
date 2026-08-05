@@ -96,7 +96,7 @@ SENSOR_DESCRIPTIONS: tuple[DuoFernSensorDescription, ...] = (
         # device_class=WIND_SPEED makes HA offer automatic unit conversion
         # (m/s / km/h / mph / kn); without this, the DISPLAYED unit follows
         # HA's system-wide unit preference, not native_unit_of_measurement,
-        # so users would need to manually override it per entity (as Gerald
+        # so users would need to manually override it per entity (as @geraldeberle1234
         # had to). suggested_unit_of_measurement sets m/s as the default
         # display unit for newly-added entities.
         suggested_unit_of_measurement="m/s",
@@ -309,7 +309,7 @@ async def async_setup_entry(
     # Register this platform's unique_ids centrally so __init__.py can
     # remove stale entities from previous integration versions.
     coordinator.data.registered_unique_ids.update(
-        e._attr_unique_id for e in entities if hasattr(e, "_attr_unique_id")
+        ("sensor", e._attr_unique_id) for e in entities if hasattr(e, "_attr_unique_id")
     )
     if entities:
         async_add_entities(entities)
@@ -959,6 +959,16 @@ class DuoFernActiveGrenzwerteSensor(
         self._event_on = event_on
         self._event_off = event_off
         self._attr_unique_id = f"{DOMAIN}_{hex_code}_{translation_key}"
+        # Only translation_key is set — deliberately NO explicit _attr_name.
+        # HA's Entity.name resolution checks _attr_name FIRST, and uses it
+        # directly (ignoring translation_key entirely) whenever it's a
+        # non-None string — confirmed by home-assistant/core#98993 and HA's
+        # own dev docs ("Avoid setting an entity's name to a hard coded
+        # English string, instead, the name should be translated."). Setting
+        # both here previously meant strings.json/en.json/de.json's entries
+        # for this translation_key were silently never used — the earlier
+        # fallback name always won instead, in every language, which is
+        # exactly what @geraldeberle1234 saw (English text despite German HA language).
         self._attr_translation_key = translation_key
         self._attr_icon = icon
         self._attr_device_info = DeviceInfo(identifiers={(DOMAIN, hex_code)})

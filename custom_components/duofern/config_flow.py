@@ -125,32 +125,35 @@ class DuoFernConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_devices(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Step 2: Collect paired device codes."""
+        """Step 2: Collect paired device codes.
+
+        The field is optional — a from-scratch setup with no devices paired
+        anywhere yet (no FHEM export, no Homepilot access) can complete with
+        an empty list and add devices afterwards via the physical pairing
+        button (auto-added to the config on success) or Configure/Options.
+        """
         errors: dict[str, str] = {}
 
         if user_input is not None:
             raw_codes = user_input.get(CONF_PAIRED_DEVICES, "")
             device_codes = _parse_device_codes(raw_codes)
 
-            if not device_codes:
-                errors[CONF_PAIRED_DEVICES] = "no_devices"
+            # Validate whatever codes WERE entered — an empty list is valid.
+            invalid = [c for c in device_codes if not validate_device_code(c)]
+            if invalid:
+                errors[CONF_PAIRED_DEVICES] = "invalid_device_code"
             else:
-                # Validate each code
-                invalid = [c for c in device_codes if not validate_device_code(c)]
-                if invalid:
-                    errors[CONF_PAIRED_DEVICES] = "invalid_device_code"
-                else:
-                    return self.async_create_entry(
-                        title=f"DuoFern ({self._user_data[CONF_DEVICE_CODE]})",
-                        data={
-                            **self._user_data,
-                            CONF_PAIRED_DEVICES: device_codes,
-                        },
-                    )
+                return self.async_create_entry(
+                    title=f"DuoFern ({self._user_data[CONF_DEVICE_CODE]})",
+                    data={
+                        **self._user_data,
+                        CONF_PAIRED_DEVICES: device_codes,
+                    },
+                )
 
         data_schema = vol.Schema(
             {
-                vol.Required(CONF_PAIRED_DEVICES): str,
+                vol.Optional(CONF_PAIRED_DEVICES, default=""): str,
             }
         )
 
@@ -322,37 +325,37 @@ class DuoFernOptionsFlow(OptionsFlow):
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Manage the paired devices list."""
+        """Manage the paired devices list.
+
+        The field is optional — same rationale as the initial config flow's
+        async_step_devices: an empty list is valid, e.g. for a from-scratch
+        setup with no devices paired yet.
+        """
         errors: dict[str, str] = {}
 
         if user_input is not None:
             raw_codes = user_input.get(CONF_PAIRED_DEVICES, "")
             device_codes = _parse_device_codes(raw_codes)
 
-            if not device_codes:
-                errors[CONF_PAIRED_DEVICES] = "no_devices"
+            invalid = [c for c in device_codes if not validate_device_code(c)]
+            if invalid:
+                errors[CONF_PAIRED_DEVICES] = "invalid_device_code"
             else:
-                invalid = [c for c in device_codes if not validate_device_code(c)]
-                if invalid:
-                    errors[CONF_PAIRED_DEVICES] = "invalid_device_code"
-                else:
-                    # Update entry.data with new device list
-                    auto_discover: bool = user_input.get(CONF_AUTO_DISCOVER, False)
-                    self.hass.config_entries.async_update_entry(
-                        self.config_entry,
-                        data={
-                            **self.config_entry.data,
-                            CONF_PAIRED_DEVICES: device_codes,
-                        },
-                    )
-                    # async_create_entry(data=...) persists entry.options and
-                    # triggers _async_update_listener → async_reload with the
-                    # already-saved new data. No explicit async_reload needed here —
-                    # calling it before async_create_entry would reload with the
-                    # old options (auto_discover not yet saved).
-                    return self.async_create_entry(
-                        data={CONF_AUTO_DISCOVER: auto_discover}
-                    )
+                # Update entry.data with new device list
+                auto_discover: bool = user_input.get(CONF_AUTO_DISCOVER, False)
+                self.hass.config_entries.async_update_entry(
+                    self.config_entry,
+                    data={
+                        **self.config_entry.data,
+                        CONF_PAIRED_DEVICES: device_codes,
+                    },
+                )
+                # async_create_entry(data=...) persists entry.options and
+                # triggers _async_update_listener → async_reload with the
+                # already-saved new data. No explicit async_reload needed here —
+                # calling it before async_create_entry would reload with the
+                # old options (auto_discover not yet saved).
+                return self.async_create_entry(data={CONF_AUTO_DISCOVER: auto_discover})
 
         # Pre-fill with current device codes
         current_codes: list[str] = self.config_entry.data.get(CONF_PAIRED_DEVICES, [])
@@ -364,7 +367,7 @@ class DuoFernOptionsFlow(OptionsFlow):
 
         data_schema = vol.Schema(
             {
-                vol.Required(CONF_PAIRED_DEVICES, default=default_value): str,
+                vol.Optional(CONF_PAIRED_DEVICES, default=default_value): str,
                 vol.Required(CONF_AUTO_DISCOVER, default=current_auto_discover): bool,
             }
         )
@@ -397,5 +400,3 @@ def _parse_device_codes(raw: str) -> list[str]:
             seen.add(code)
             result.append(code)
     return result
-
-

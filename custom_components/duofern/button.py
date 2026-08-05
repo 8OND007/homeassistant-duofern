@@ -68,16 +68,21 @@ async def async_setup_entry(
         DuoFernPairByCodeButton(coordinator, system_code_hex),
     ]
 
-    # Add dusk/dawn/toggle buttons for every cover device
+    # Add dusk/dawn buttons for every cover AND switch-actor device — FHEM's
+    # %setsSwitchActor includes dusk/dawn (071301FF.../070901FF...) just like
+    # %setsDefaultRollerShutter, they were previously only wired up for
+    # covers. Toggle stays cover-only: %setsSwitchActor has no "toggle"
+    # command at all (071A... is cover-specific).
     for hex_code, device_state in coordinator.data.devices.items():
         dc = (
             device_state.device_code.with_channel(device_state.channel)
             if device_state.channel
             else device_state.device_code
         )
-        if dc.is_cover:
+        if dc.is_cover or dc.is_switch:
             entities.append(DuoFernDuskButton(coordinator, dc))
             entities.append(DuoFernDawnButton(coordinator, dc))
+        if dc.is_cover:
             entities.append(DuoFernToggleButton(coordinator, dc))
 
     # Reset buttons for all actuators (covers, switches, dimmers)
@@ -95,7 +100,16 @@ async def async_setup_entry(
         # reset:settings,full for all devices that support it
         # From 30_DUOFERN.pm %setsBasic / %setsReset: covers, switches, dimmers
         # 0xE1 Heizkörperantrieb uses %setsHSA which has no reset commands
-        if (
+        # 0x69 Umweltsensor is excluded on BOTH channels: channel "00" uses
+        # %setsUmweltsensor00 (no reset), and channel "01" — despite now
+        # matching is_cover — uses %setsDefaultRollerShutter +
+        # %setsUmweltsensor01 + %setsPair, which deliberately omits
+        # %setsBasic/%setsReset (30_DUOFERN.pm line ~624), unlike every
+        # other cover type.
+        # 0x65/0x74 channel "01" is excluded for the identical reason: FHEM
+        # dispatches %setsSwitchActor + %setsPair for it (line ~624), never
+        # %setsBasic/%setsReset — same pattern, different device types.
+        if dev_code.device_type not in (0x65, 0x69, 0x74) and (
             dev_code.is_cover
             or dev_code.is_switch
             or dev_code.is_light
@@ -159,7 +173,7 @@ async def async_setup_entry(
     # Register this platform's unique_ids centrally so __init__.py can
     # remove stale entities from previous integration versions.
     coordinator.data.registered_unique_ids.update(
-        e._attr_unique_id for e in entities if hasattr(e, "_attr_unique_id")
+        ("button", e._attr_unique_id) for e in entities if hasattr(e, "_attr_unique_id")
     )
     async_add_entities(entities)
 

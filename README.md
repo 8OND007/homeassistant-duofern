@@ -42,7 +42,7 @@ Forked from @MSchenkl and extensively rewritten to aim for a complete re-impleme
 | Description | Code | HA Platform | Tested |
 |-------------|------|-------------|:------:|
 | Dimmaktor | `0x48` | `light` | ❌ |
-| Dimmer (9476-1) | `0x4A` | `light` | ❌ |
+| Dimmer (9476-1) | `0x4A` | `light` | ✅ |
 
 ### Climate / Heating
 
@@ -55,21 +55,23 @@ Forked from @MSchenkl and extensively rewritten to aim for a complete re-impleme
 
 | Description | Code | HA Platform | Tested |
 |-------------|------|-------------|:------:|
-| Bewegungsmelder | `0x65` | `binary_sensor` | ❌ |
+| Bewegungsmelder | `0x65` | `binary_sensor`, `switch`, `number`, `button` | ❌ |
 | Rauchmelder | `0xAB` | `binary_sensor` | ✅ |
 | Fenster-Tür-Kontakt | `0xAC` | `binary_sensor` | ✅ |
 | Umweltsensor | `0x69` | `sensor`, `binary_sensor`, `number`, `select`, `switch`, `text`, `button` | ✅ |
 | Sonnensensor | `0xA5` | `binary_sensor` | ✅ |
 | Sonnensensor (alt) | `0xAF` | `binary_sensor` | ❌ |
-| Sonnen-/Windsensor | `0xA9` | `binary_sensor` | ❌ |
+| Sonnen-/Windsensor | `0xA9` | `binary_sensor` | ✅ |
 | Markisenwaechter | `0xAA` | `binary_sensor` | ❌ |
+
+`0x65` (Bewegungsmelder) is registered as two sub-devices, same pattern as the Umweltsensor: sub-channel "00" carries the motion sensor, sub-channel "01" is a switch actor (`%setsSwitchActor` in FHEM) — on/off, dusk/dawn buttons, a stairwell timer, and automation switches. See [Switch Entities](#switch-entities-universalaktor-steckdosenaktor).
 
 ### Remote Controls & Wall Buttons (event-only)
 
 | Description | Code | Notes | Tested |
 |-------------|------|-------|:------:|
 | Wandtaster | `0xA4` | Fires `duofern_event` on the HA event bus | ❌ |
-| Wandtaster 6fach 230V | `0x74` | Fires `duofern_event` on the HA event bus | ❌ |
+| Wandtaster 6fach 230V | `0x74` | Fires `duofern_event` on the HA event bus (sub-channel "00"); sub-channel "01" is also a switch actor, same as `0x65` above | ❌ |
 | Wandtaster 6fach Bat | `0xAD` | Fires `duofern_event` on the HA event bus | ❌ |
 | Funksender UP | `0xA7` | Fires `duofern_event` on the HA event bus | ❌ |
 | Handsender (6 Gruppen / 48 Geräte) | `0xA0` | Fires `duofern_event` on the HA event bus | ✅ |
@@ -110,6 +112,17 @@ Forked from @MSchenkl and extensively rewritten to aim for a complete re-impleme
 - **Universalaktor (0x43)** — creates two separate switch entities (one per channel: 01 and 02), both grouped under the same device in HA
 - **All automation flags as attributes** — `dawnAutomatic`, `duskAutomatic`, `sunAutomatic`,
   `timeAutomatic`, `manualMode`, `sunMode`, `stairwellFunction`, `stairwellTime`, `modeChange`
+- **Bewegungsmelder (0x65) / Wandtaster 6fach 230V (0x74) — actor sub-channel "01"** — both devices
+  additionally register a switch-actor sub-device (`%setsSwitchActor` in FHEM), separate from their
+  event sub-channel "00" (motion detection / button presses — see
+  [Binary Sensor Entities](#binary-sensor-entities-motion-smoke-contact) and
+  [Remote Control Event Entities](#remote-control-event-entities)):
+  - **On / Off switch**, plus **Dusk / Dawn buttons** (see [Per-Device Buttons](#per-device-buttons))
+  - **Stairwell Time number** (0–3200 s)
+  - **Automation switches**: `dawnAutomatic`, `duskAutomatic`, `manualMode`, `sunAutomatic`,
+    `timeAutomatic`, `sunMode`, `modeChange`, `stairwellFunction`
+  - No reset buttons — like the Umweltsensor's actor channel, `%setsSwitchActor` has no
+    `reset:settings,full` command, unlike every other switch/cover type
 
 ### Light Entities (Dimmers)
 
@@ -144,7 +157,7 @@ Forked from @MSchenkl and extensively rewritten to aim for a complete re-impleme
 
 ### Binary Sensor Entities (Motion, Smoke, Contact)
 
-- **Bewegungsmelder (0x65)** — `motion` device class, state updated via `duofern_event`
+- **Bewegungsmelder (0x65)** — `motion` device class, state updated via `duofern_event`; lives on sub-channel "00" (sub-channel "01" is a switch actor, see [Switch Entities](#switch-entities-universalaktor-steckdosenaktor))
 - **Rauchmelder (0xAB)** — `smoke` device class, state updated via `duofern_event`; battery level is persisted across HA restarts
 - **Fenster-Tür-Kontakt (0xAC)** — `opening` device class; two entities per device: `opened` and `tilted`
 - **Battery sensor** — battery-powered sensors (Bewegungsmelder `0x65`, Rauchmelder `0xAB`, Fenster-Tür-Kontakt `0xAC`) get a dedicated **Battery** diagnostic sensor entity (0–100 %) visible on the device card. The last known value persists across HA restarts. `battery_state` (ok/low) is exposed as an attribute on the battery entity
@@ -197,9 +210,13 @@ One sensor entity per measurement, updated from the weather frame:
 | Sun Direction (Sonnenrichtung) | ° | — |
 | Sun Height (Sonnenhöhe) | ° | — |
 
-- **Rain Detected** — `moisture` binary sensor. Updated from the `isRaining` bit in every weather frame and reacts instantly to `startRain`/`endRain` device events. State survives HA restarts.
+- **Rain Detected** — `moisture` binary sensor. Updated from the `isRaining` bit in every weather frame AND from `startRain`/`endRain` sensorMsg threshold events (same Grenzwert-bitmask mechanism as below). The verified weather-frame bit always wins: it force-clears any threshold-event state whenever it reports no rain, so the sensor can never get stuck "raining" for longer than one weather-frame interval (~1 min).
+- **Active-Grenzwerte sensors (Sun / Wind / Temperature)** — three sensors report which of the up to 5 configured trigger thresholds ("Grenzwerte") are currently active, as a comma-joined list (e.g. `"1,3"`), decoded from the sensorMsg channel bitmask. Use a template condition in automations to filter by a specific Grenzwert, e.g. `{{ '3' in states('sensor...wind_grenzwerte').split(',') }}` — or use the per-Grenzwert **device automation triggers** described below instead, which don't need a template.
+- **Dawn/Dusk event entity** — a single `Dawn/Dusk` event entity fires `dawn` or `dusk` when the corresponding sensorMsg (0713/0709) arrives; FHEM has no "end" message for these two, so they're a momentary event rather than a persistent sensor. Which Grenzwert(e) fired is included as event data (`grenzwerte: "1,3"`).
 - **Device Date / Device Time** — diagnostic sensors populated by pressing the **Get Time** button; reflect the Umweltsensor's own internal clock.
 - **Buttons** — **Get Weather**, **Get Time**, **Get Config**, **Write Config**, **Set Time** (pushes the current HA time to the device).
+
+**Automation triggers for Sonne/Wind/Temperatur/Morgendämmerung/Abenddämmerung**: each of these five groups offers 5 (or 10, for the start/end pairs) dedicated device automation triggers — one per Grenzwert slot, clearly labelled e.g. "Wind Grenzwert 3 – Start", "Temperatur Grenzwert 1 – Überschritten", "Morgendämmerung Grenzwert 2 – Ausgelöst". Pick "Device" as the trigger type in the automation editor, select the Umweltsensor's weather-station device, then choose the specific Grenzwert/subtype combination from the dropdown — no template needed. Regen only has a flat Start/Ende trigger (no Grenzwert list, matching Homepilot's own single on/off toggle for rain).
 
 Config entities (read via **Get Config**, written to the device via the **Write Config** button):
 
@@ -210,7 +227,11 @@ Config entities (read via **Get Config**, written to the device via the **Write 
 | Trigger Rain | Switch | Enable/disable the rain trigger |
 | Latitude / Longitude | Number | Location used for sun position calculation |
 | Timezone Offset | Number | Timezone offset (0–23) used for sun calculations |
-| Wind / Temperature / Dawn / Dusk / Sun / Sun Direction / Sun Height Triggers | Text | 5-channel trigger thresholds, space-separated in FHEM's native format (e.g. `off 15 off off off`) |
+| Grenzwert Slot (Wind / Temperature / Dawn / Dusk / Sun) | Select | Picks which of the 5 trigger slots the controls below act on — a local HA UI concept, not written to the device |
+| Trigger Active | Switch | Enable/disable the currently selected Grenzwert slot (per group) |
+| Target Value (Wind speed / Temperature / Dawn brightness / Dusk brightness / Sun brightness / Sun detection delay / Shadow detection delay / Sun minimum temperature) | Number | The threshold value for the currently selected Grenzwert slot |
+| Sun Direction Target Angle / Width, Sun Height Target / Width | Select | Fixed, Homepilot-confirmed discrete options for the currently selected Sun Grenzwert slot |
+| Sun Link Temperature | Switch | Couples the Sun trigger to a minimum temperature ("Mit Temperatur verknüpfen") |
 
 #### Sub-Channel "01" — Actor
 
@@ -246,17 +267,17 @@ Pair DuoFern devices by entering their 6-digit device code — **no physical but
 3. Press the **"Pair by Code"** button
 4. If successful, the device is added automatically and the integration reloads
 
-Only 6-digit device codes are supported. 10-digit (2020+) devices must be paired via Homepilot first, then added via Auto-Discovery or paired using button press method.
+Only 6-digit device codes are supported. 10-digit (2020+) devices must be paired using button press method.
 
 ### Per-Device Buttons
 
 | Button | Devices | What it does |
 |--------|---------|-------------|
-| **Dusk position** | All covers | Move to stored dusk position |
-| **Dawn position** | All covers | Move to stored dawn position |
+| **Dusk position** | All covers, plus switch actors (Universalaktor, Steckdosenaktor, and the 0x65/0x74 actor sub-channel) | Move to stored dusk position |
+| **Dawn position** | All covers, plus switch actors (Universalaktor, Steckdosenaktor, and the 0x65/0x74 actor sub-channel) | Move to stored dawn position |
 | **Toggle** | All covers | Reverse current movement / change direction |
-| **Reset settings** | Covers, switches, dimmers, climate | Reset device settings (keeps pairing) |
-| **Full reset** | Covers, switches, dimmers, climate | Factory reset (loses pairing) |
+| **Reset settings** | Covers, switches, dimmers, climate — except the Umweltsensor (0x69) and Bewegungsmelder/Wandtaster 6fach (0x65/0x74) actor sub-channels, which have no reset command | Reset device settings (keeps pairing) |
+| **Full reset** | Covers, switches, dimmers, climate — except the Umweltsensor (0x69) and Bewegungsmelder/Wandtaster 6fach (0x65/0x74) actor sub-channels, which have no reset command | Factory reset (loses pairing) |
 | **Remote pair** | All actuators | Initiate remote pairing |
 | **Remote unpair** | All actuators | Remove remote pairing |
 | **Stop remote pairing** | All actuators | End remote pair/unpair window early |
@@ -265,7 +286,7 @@ Only 6-digit device codes are supported. 10-digit (2020+) devices must be paired
 
 ### Remote Control Event Entities
 
-Each paired Handsender or Wandtaster gets a dedicated **EventEntity** in HA. When a button is pressed, the entity fires with the action (`up`, `stop`, `down`, `stepUp`, `stepDown`, `pressed`, `on`, `off`) and channel number, making it directly usable in automations via the **Device trigger** UI — no YAML required.
+Each paired Handsender or Wandtaster gets a dedicated **EventEntity** in HA. When a button is pressed, the entity fires with the action (`up`, `stop`, `down`, `stepUp`, `stepDown`, `pressed`, `on`, `off`) and channel number, making it directly usable in automations via the **Device trigger** UI — no YAML required. For the Wandtaster 6fach 230V (0x74), this lives on event sub-channel "00"; all 6 buttons are individually selectable as device triggers.
 
 ### General
 
@@ -311,6 +332,17 @@ Go to **Settings → Devices & Services → Add Integration → DuoFern**
 - **Serial Connection** — select a local USB stick (e.g., `/dev/ttyUSB0`) from the dropdown, or type a `ser2net` network URL such as `socket://192.168.1.20:2000` or `rfc2217://192.168.1.20:2000`
 - **System Code** — the 6-digit hex dongle serial (starts with `6F`, e.g., `6F1A2B`). Find it in your previous FHEM config (`ATTR dongle CODE`) or on the stick label. To preserve all existing pairings you need to use the same code as before! Otherwise all devices have to be re-paired
 
+#### I don't have FHEM and can't find my System Code anywhere
+
+Older Homepilot versions showed the system code somewhere in their settings, but as far as we know, **current Homepilot firmware no longer exposes it anywhere in the UI**. If you never used FHEM and can't find the code in an old export, you can't recover the *original* code your devices are currently paired to — there is no way around that.
+
+You can **pick a new System Code yourself and re-pair every device.** A code is valid as long as it follows the same pattern Rademacher itself uses for its dongles: 6 hex characters, starting with `6F`, followed by 4 arbitrary hex digits — e.g. `6FA51C`, `6F0001`, `6FDEAD`. Any value matching that pattern is accepted. **This will not be the same code your devices are already paired to**, so every single device will need to be re-paired from scratch (physical pair-button press, or [Pair by Code](#pair-by-code-code-pairing) if you know the device's own 6-digit code — this does not work for 10-digit codes!) before it responds to this integration.
+
+**If Homepilot is still running and you can access it**, you can use remote-pairing for most devices instead of re-pairing everything by hand. Put a device into remote-pairing mode via Homepilot, then — once the stick is set up in HA — put the stick into pairing mode too and add devices one by one this way. A few devices don't have a remote-pair button at all, and even fewer devices don't support being bound to two hubs at once — the Heizkörperantrieb is one such exception. This way, a device ends up paired to both codes you control while Homepilot is still running, before you retire it.
+
+Either way, re-pairing itself is safe and reversible — it doesn't require FHEM and doesn't touch anything else on the device. See [Migrating from FHEM](#migrating-from-fhem) below if you *do* have an existing code and just want to reuse it without re-pairing.
+
+
 ### Step 2: Paired Devices
 
 Enter the 6-digit hex codes of your paired DuoFern devices, separated by commas:
@@ -320,6 +352,12 @@ Enter the 6-digit hex codes of your paired DuoFern devices, separated by commas:
 ```
 
 These are the device codes from your FHEM configuration (`ATTR device CODE`).
+
+This field is optional — you can leave it empty and finish setup with zero devices, then add them
+afterwards via **Settings → Devices & Services → DuoFern → Configure**, physical pairing, or
+[Pair by Code](#pair-by-code-code-pairing). Useful for a from-scratch setup with no FHEM export or
+Homepilot access to read existing codes from — see [I don't have FHEM and can't find my System
+Code anywhere](#i-dont-have-fhem-and-cant-find-my-system-code-anywhere) above.
 
 ### Managing Devices After Setup
 

@@ -51,7 +51,16 @@ async def async_setup_entry(
 
     entities: list[DuoFernRemoteEvent] = []
     for hex_code, device_state in coordinator.data.devices.items():
-        if device_state.device_code.device_type in REMOTE_DEVICE_TYPES:
+        # 0x74 now has two sub-channels ("00" events, "01" actor — see
+        # DEVICE_CHANNELS in const.py); the event entity belongs on "00",
+        # where sensorMsg events actually land (see coordinator.
+        # _handle_sensor_event's "00"-redirect for 65/69/74). channel !=
+        # "01" also passes for every other REMOTE_DEVICE_TYPES entry
+        # (channel is always None for them), so this only changes 0x74.
+        if (
+            device_state.device_code.device_type in REMOTE_DEVICE_TYPES
+            and device_state.channel != "01"
+        ):
             entities.append(DuoFernRemoteEvent(coordinator, hex_code, device_state))
             _LOGGER.debug("Adding event entity for remote %s", hex_code)
 
@@ -75,7 +84,7 @@ async def async_setup_entry(
     # Register this platform's unique_ids centrally so __init__.py can
     # remove stale entities from previous integration versions.
     coordinator.data.registered_unique_ids.update(
-        e._attr_unique_id for e in entities if hasattr(e, "_attr_unique_id")
+        ("event", e._attr_unique_id) for e in entities if hasattr(e, "_attr_unique_id")
     )
     if entities:
         async_add_entities(entities)
@@ -179,6 +188,8 @@ class DuoFernUmweltsensorDawnDuskEvent(
 
     _attr_has_entity_name = True
     _attr_translation_key = "dawn_dusk"
+    # Deliberately NO explicit _attr_name — see DuoFernActiveGrenzwerteSensor
+    # in sensor.py for why (setting both blocks the translation lookup).
     _attr_event_types = ["dawn", "dusk"]
 
     def __init__(

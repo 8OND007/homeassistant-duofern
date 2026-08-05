@@ -131,7 +131,14 @@ async def async_setup_entry(
     entities: list[BinarySensorEntity] = []
     for hex_code, device_state in coordinator.data.devices.items():
         # Event-based sensors
-        if device_state.device_code.is_binary_sensor:
+        # 0x65 now has two sub-channels ("00" events, "01" actor — see
+        # DEVICE_CHANNELS in const.py); the motion-sensor entity itself
+        # belongs on "00", where sensorMsg events actually land (see
+        # coordinator._handle_sensor_event's "00"-redirect for 65/69/74).
+        # channel != "01" also passes for 0xAB/0xAC (channel is always None
+        # for them, since they have no DEVICE_CHANNELS entry), so this guard
+        # only changes behaviour for 0x65.
+        if device_state.device_code.is_binary_sensor and device_state.channel != "01":
             if device_state.device_code.device_type == 0xAC:
                 # Fenster-Tuer-Kontakt: two separate entities for opened vs tilted
                 for sensor_type, trans_key in (
@@ -288,7 +295,9 @@ async def async_setup_entry(
     # Register this platform's unique_ids centrally so __init__.py can
     # remove stale entities from previous integration versions.
     coordinator.data.registered_unique_ids.update(
-        e._attr_unique_id for e in entities if hasattr(e, "_attr_unique_id")
+        ("binary_sensor", e._attr_unique_id)
+        for e in entities
+        if hasattr(e, "_attr_unique_id")
     )
     if entities:
         async_add_entities(entities)
@@ -474,12 +483,15 @@ class DuoFernWindowSensor(
     _attr_has_entity_name = True
     _attr_device_class = BinarySensorDeviceClass.WINDOW
 
-    # Events that set this specific instance to True/False
+    # Events that set this specific instance to True; any other relevant
+    # event (including the sibling event) sets it to False. A window can
+    # only be in exactly one of opened/closed/tilted at a time, so opened
+    # and tilted must turn each other off — not just "closed".
     _EVENTS_ON: dict[str, set[str]] = {
         "opened": {"opened"},
         "tilted": {"tilted"},
     }
-    _EVENTS_OFF: set[str] = {"closed"}
+    _RELEVANT_EVENTS: set[str] = {"opened", "closed", "tilted"}
 
     def __init__(
         self,
@@ -559,15 +571,15 @@ class DuoFernWindowSensor(
             return
 
         event_name: str = data.get("event", "")
-        my_on_events = self._EVENTS_ON[self._sensor_type]
+        if event_name not in self._RELEVANT_EVENTS:
+            return
 
-        if event_name in my_on_events:
-            self._is_on = True
+        # Recompute from scratch on every relevant event: True only if this
+        # instance's own event fired, False for the sibling event or "closed".
+        new_is_on = event_name in self._EVENTS_ON[self._sensor_type]
+        if new_is_on != self._is_on:
+            self._is_on = new_is_on
             self.async_write_ha_state()
-        elif event_name in self._EVENTS_OFF:
-            self._is_on = False
-            self.async_write_ha_state()
-        # Other events (e.g. the sibling opened/tilted) are ignored
 
     @property
     def device_info(self) -> DeviceInfo:

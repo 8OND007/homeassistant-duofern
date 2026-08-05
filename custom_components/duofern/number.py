@@ -33,7 +33,7 @@ from homeassistant.components.number import (
     NumberEntityDescription,
     NumberMode,
 )
-from homeassistant.const import EntityCategory
+from homeassistant.const import EntityCategory, UnitOfTemperature
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -172,6 +172,27 @@ NUMBER_DESCRIPTIONS: tuple[DuoFernNumberDescription, ...] = (
         entity_category=EntityCategory.CONFIG,
         icon="mdi:stairs",
         device_types=frozenset({0x43, 0x46, 0x48, 0x4A, 0x71}),
+        coordinator_method="async_set_stairwell_time",
+    ),
+    # 0x65 (Bewegungsmelder) / 0x74 (Wandtaster 6fach 230V) channel "01":
+    # same reading, but needs its own entry with channel_filter="01" since
+    # the entry above serves channel-less device types (channel_filter=None
+    # there means "no restriction" — mixing a channel-carrying type into it
+    # would incorrectly apply to both of its channels). From 30_DUOFERN.pm:
+    #   %setsSwitchActor includes "stairwellTime:slider,0,10,3200".
+    DuoFernNumberDescription(
+        key="stairwellTime",
+        translation_key="stairwell_time",
+        reading_key="stairwellTime",
+        name="Stairwell Time",
+        native_min_value=0,
+        native_max_value=3200,
+        native_step=10,
+        native_unit_of_measurement="s",
+        entity_category=EntityCategory.CONFIG,
+        icon="mdi:stairs",
+        device_types=frozenset({0x65, 0x74}),
+        channel_filter="01",
         coordinator_method="async_set_stairwell_time",
     ),
     # --- Dimmer: intermediate value + running time ---
@@ -418,7 +439,8 @@ async def async_setup_entry(
             if dev_type in desc.device_types:
                 # channel_filter=None → no restriction (all existing descriptions).
                 # channel_filter set → only create for the matching sub-channel.
-                # Used for 0x69 Umweltsensor only; no other device type is affected.
+                # Used for 0x69 Umweltsensor (channel "00" vs "01") and for
+                # 0x65/0x74 (channel "01" actor only).
                 if (
                     desc.channel_filter is None
                     or device_state.channel == desc.channel_filter
@@ -427,10 +449,27 @@ async def async_setup_entry(
                         DuoFernNumber(coordinator, device_state, hex_code, desc)
                     )
 
+    # Structured trigger GUI — Umweltsensor 0x69 channel "00".
+    # Value sliders for whichever Grenzwert is currently selected per group.
+    # See coordinator.py's "Structured per-Grenzwert GUI" section.
+    for hex_code, device_state in coordinator.data.devices.items():
+        if (
+            device_state.device_code.device_type == 0x69
+            and device_state.channel == "00"
+        ):
+            for desc in GRENZWERT_NUMBER_DESCRIPTIONS:
+                entities.append(
+                    DuoFernGrenzwertNumber(coordinator, device_state, hex_code, desc)
+                )
+            # Sonnenrichtung "Zielrichtung" moved to select.py — @geraldeberle1234
+            # confirmed it only takes 14 fixed values (22.5°/45°/.../315°,
+            # NOT a continuous range), so it belongs as a Select, not a
+            # Number. See DuoFernSunDirectionAngleSelect in select.py.
+
     # Register this platform's unique_ids centrally so __init__.py can
     # remove stale entities from previous integration versions.
     coordinator.data.registered_unique_ids.update(
-        e._attr_unique_id for e in entities if hasattr(e, "_attr_unique_id")
+        ("number", e._attr_unique_id) for e in entities if hasattr(e, "_attr_unique_id")
     )
     if entities:
         async_add_entities(entities)
@@ -516,6 +555,222 @@ class DuoFernNumber(CoordinatorEntity[DuoFernCoordinator], NumberEntity, Restore
         """
         method = getattr(self.coordinator, self.entity_description.coordinator_method)
         await method(self._device_code, float(value))
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        self.async_write_ha_state()
+
+
+# ---------------------------------------------------------------------------
+# Structured trigger GUI — Umweltsensor 0x69 channel "00"
+# ---------------------------------------------------------------------------
+#
+# min/max/step source per field — see NOTES.md for full detail:
+#   Wind, Temperatur, Dawn/Dusk-Helligkeit: exact from FHEM wCmds table
+#   Sonne Helligkeit/Verzögerung: derived from encoding bit-width, NOT
+#     confirmed against a real Homepilot slider endpoint — safe assumption,
+#     @geraldeberle1234 asked to verify
+#   Sonne "Ab Temperatur von": bit-width + consistent with @geraldeberle1234's screenshots
+#   Sonnenrichtung Zielwinkel: safe assumption (continuous Number with the
+#     22.5° step instead of a fixed option list) — @geraldeberle1234 asked whether 0°/
+#     337.5° are valid Homepilot values or not; using Number here means this
+#     doesn't need to be "right" up front, only the min/max needs revisiting
+#     later if it turns out too narrow or too wide
+
+
+@dataclass(frozen=True)
+class DuoFernGrenzwertNumberDescription:
+    """Describes one value slider for the currently selected Grenzwert.
+
+    get_method: coordinator method name, called as get_method(device_code, slot),
+      returns a tuple whose element at value_index is the current number.
+    set_method: coordinator method name, called as
+      set_method(device_code, slot, value: int).
+    """
+
+    key: str
+    translation_key: str
+    name: str
+    icon: str
+    group: str
+    native_min_value: float
+    native_max_value: float
+    native_step: float
+    native_unit_of_measurement: str
+    get_method: str
+    set_method: str
+    value_index: int = 1
+
+
+GRENZWERT_NUMBER_DESCRIPTIONS: tuple[DuoFernGrenzwertNumberDescription, ...] = (
+    DuoFernGrenzwertNumberDescription(
+        key="wind_grenzwert_value",
+        translation_key="wind_grenzwert_value",
+        name="Wind Target Value",
+        icon="mdi:weather-windy",
+        group="wind",
+        native_min_value=1,
+        native_max_value=31,
+        native_step=1,
+        native_unit_of_measurement="m/s",
+        get_method="get_trigger_wind_slot",
+        set_method="async_set_trigger_wind_slot_value",
+    ),
+    DuoFernGrenzwertNumberDescription(
+        key="temperature_grenzwert_value",
+        translation_key="temperature_grenzwert_value",
+        name="Temperature Target Value",
+        icon="mdi:thermometer",
+        group="temperature",
+        native_min_value=-40,
+        native_max_value=80,
+        native_step=1,
+        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+        get_method="get_trigger_temperature_slot",
+        set_method="async_set_trigger_temperature_slot_value",
+    ),
+    DuoFernGrenzwertNumberDescription(
+        key="dawn_grenzwert_value",
+        translation_key="dawn_grenzwert_value",
+        name="Dawn Brightness",
+        icon="mdi:brightness-5",
+        group="dawn",
+        native_min_value=1,
+        native_max_value=100,
+        native_step=1,
+        native_unit_of_measurement="lx",
+        get_method="get_trigger_dawn_slot",
+        set_method="async_set_trigger_dawn_slot_value",
+    ),
+    DuoFernGrenzwertNumberDescription(
+        key="dusk_grenzwert_value",
+        translation_key="dusk_grenzwert_value",
+        name="Dusk Brightness",
+        icon="mdi:brightness-3",
+        group="dusk",
+        native_min_value=1,
+        native_max_value=100,
+        native_step=1,
+        native_unit_of_measurement="lx",
+        get_method="get_trigger_dusk_slot",
+        set_method="async_set_trigger_dusk_slot_value",
+    ),
+    DuoFernGrenzwertNumberDescription(
+        key="sun_grenzwert_klux",
+        translation_key="sun_grenzwert_klux",
+        name="Sun Brightness",
+        icon="mdi:brightness-6",
+        group="sun",
+        native_min_value=1,
+        native_max_value=100,  # confirmed by @geraldeberle1234 against real Homepilot slider
+        native_step=1,
+        native_unit_of_measurement="klx",
+        get_method="get_trigger_sun_slot",
+        set_method="async_set_trigger_sun_slot_klux",
+        value_index=1,
+    ),
+    DuoFernGrenzwertNumberDescription(
+        key="sun_grenzwert_sun_minutes",
+        translation_key="sun_grenzwert_sun_minutes",
+        name="Sun Detection Delay",
+        icon="mdi:timer-sand",
+        group="sun",
+        native_min_value=1,
+        native_max_value=32,  # confirmed by @geraldeberle1234 against real Homepilot slider
+        native_step=1,
+        native_unit_of_measurement="min",
+        get_method="get_trigger_sun_slot",
+        set_method="async_set_trigger_sun_slot_sun_minutes",
+        value_index=2,
+    ),
+    DuoFernGrenzwertNumberDescription(
+        key="sun_grenzwert_shadow_minutes",
+        translation_key="sun_grenzwert_shadow_minutes",
+        name="Shadow Detection Delay",
+        icon="mdi:timer-sand",
+        group="sun",
+        native_min_value=1,
+        native_max_value=32,  # confirmed by @geraldeberle1234 against real Homepilot slider
+        native_step=1,
+        native_unit_of_measurement="min",
+        get_method="get_trigger_sun_slot",
+        set_method="async_set_trigger_sun_slot_shadow_minutes",
+        value_index=3,
+    ),
+    DuoFernGrenzwertNumberDescription(
+        key="sun_grenzwert_temp",
+        translation_key="sun_grenzwert_temp",
+        name="Sun Minimum Temperature",
+        icon="mdi:thermometer",
+        group="sun",
+        native_min_value=-5,
+        native_max_value=26,
+        native_step=1,
+        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+        get_method="get_trigger_sun_slot",
+        set_method="async_set_trigger_sun_slot_temp",
+        value_index=5,
+    ),
+)
+
+
+class DuoFernGrenzwertNumber(CoordinatorEntity[DuoFernCoordinator], NumberEntity):
+    """Generic value slider for whichever Grenzwert is currently selected
+    in its trigger group (see DuoFernGrenzwertSelector in select.py).
+    """
+
+    _attr_has_entity_name = True
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(
+        self,
+        coordinator: DuoFernCoordinator,
+        device_state: DuoFernDeviceState,
+        hex_code: str,
+        description: DuoFernGrenzwertNumberDescription,
+    ) -> None:
+        super().__init__(coordinator)
+        self._hex_code = hex_code
+        self._device_code = device_state.device_code
+        self._desc = description
+        self._attr_unique_id = f"{DOMAIN}_{hex_code}_{description.key}"
+        # Deliberately NO explicit _attr_name — see DuoFernActiveGrenzwerteSensor
+        # in sensor.py for why (setting both translation_key and name blocks
+        # the translation lookup entirely). description.name is unused now,
+        # kept on the dataclass only as documentation of the English default.
+        self._attr_translation_key = description.translation_key
+        self._attr_icon = description.icon
+        self._attr_native_min_value = description.native_min_value
+        self._attr_native_max_value = description.native_max_value
+        self._attr_native_step = description.native_step
+        self._attr_native_unit_of_measurement = description.native_unit_of_measurement
+        self._attr_device_info = DeviceInfo(identifiers={(DOMAIN, hex_code)})
+
+    @property
+    def _device_state(self) -> DuoFernDeviceState | None:
+        if self.coordinator.data is None:
+            return None
+        return self.coordinator.data.devices.get(self._hex_code)
+
+    @property
+    def _slot(self) -> int:
+        state = self._device_state
+        return state.selected_grenzwert.get(self._desc.group, 1) if state else 1
+
+    @property
+    def available(self) -> bool:
+        state = self._device_state
+        return state is not None and self.coordinator.last_update_success
+
+    @property
+    def native_value(self) -> float | None:
+        get_fn = getattr(self.coordinator, self._desc.get_method)
+        result = get_fn(self._device_code, self._slot)
+        return float(result[self._desc.value_index])
+
+    async def async_set_native_value(self, value: float) -> None:
+        set_fn = getattr(self.coordinator, self._desc.set_method)
+        await set_fn(self._device_code, self._slot, int(round(value)))
 
     @callback
     def _handle_coordinator_update(self) -> None:

@@ -135,6 +135,22 @@ class DuoFernId:
 
     @property
     def is_cover(self) -> bool:
+        """Return True if this is a cover-type device.
+
+        Special case 0x69 Umweltsensor: it is registered as two separate HA
+        devices (channel "00" weather station, channel "01" actor), both
+        sharing device_type=0x69. Only channel "01" is actually a cover —
+        from 30_DUOFERN.pm:
+          %sets = (%setsDefaultRollerShutter, %setsUmweltsensor01, %setsPair)
+            if ($hash->{CODE} =~ /^69....01/);
+          %sets = (%setsUmweltsensor00) if ($hash->{CODE} =~ /^69....00/);
+        Channel "00" gets no roller-shutter commands at all. Callers that
+        want this distinction must pass a channel-carrying DuoFernId (e.g.
+        via with_channel()) — a channel-less 0x69 id (self.channel is None)
+        returns False here, same as channel "00".
+        """
+        if self.raw[0] == 0x69:
+            return self.channel == "01"
         return self.raw[0] in COVER_DEVICE_TYPES
 
     @property
@@ -153,6 +169,19 @@ class DuoFernId:
 
     @property
     def is_switch(self) -> bool:
+        """Return True if this is a switch-actor device.
+
+        Special case 0x65/0x74: each has two sub-channels ("00" sensor
+        events, "01" actor/relay — see DEVICE_CHANNELS in const.py). Only
+        channel "01" is a switch actor — from 30_DUOFERN.pm:
+          %sets = (%setsSwitchActor, %setsPair)
+            if ($hash->{CODE} =~ /^(65|74)....01/);
+        Channel "00" and channel-less ids (self.channel is None) return
+        False here. 0x43/0x46/0x71 use the original device-type-only
+        check — unaffected.
+        """
+        if self.raw[0] in (0x65, 0x74):
+            return self.channel == "01"
         return self.raw[0] in SWITCH_DEVICE_TYPES
 
     @property
@@ -161,6 +190,17 @@ class DuoFernId:
 
     @property
     def is_binary_sensor(self) -> bool:
+        """Return True if this is an event-based binary sensor device.
+
+        Special case 0x65: has two sub-channels ("00" sensor events, "01"
+        actor/relay — see DEVICE_CHANNELS in const.py and is_switch above).
+        The motion-detector sensor itself belongs on channel "00"; channel
+        "01" is a switch actor instead, not a binary sensor. A channel-less
+        0x65 id (self.channel is None) returns True here, same as "00".
+        0xAB/0xAC have no channels at all — completely unaffected.
+        """
+        if self.raw[0] == 0x65:
+            return self.channel != "01"
         return self.raw[0] in BINARY_SENSOR_DEVICE_TYPES
 
     @property
@@ -169,6 +209,17 @@ class DuoFernId:
 
     @property
     def is_remote(self) -> bool:
+        """Return True if this is an event-only remote/wall-button device.
+
+        Special case 0x74: has two sub-channels ("00" button events, "01"
+        actor/relay — see DEVICE_CHANNELS in const.py and is_switch above).
+        The event-only remote behaviour belongs on channel "00"; channel
+        "01" is a switch actor instead. A channel-less 0x74 id (self.channel
+        is None) returns True here, same as "00". Every other
+        REMOTE_DEVICE_TYPES entry has no channels — unaffected.
+        """
+        if self.raw[0] == 0x74:
+            return self.channel != "01"
         return self.raw[0] in REMOTE_DEVICE_TYPES
 
     @property
@@ -1233,8 +1284,8 @@ class DuoFernDecoder:
         return SensorEvent(
             device_code=device_code.hex,
             channel=chan_hex,
-            event_name=spec["name"],
-            state=spec.get("state"),
+            event_name=event_name,
+            state=state,
             raw_msg_id=msg_id,
         )
 
@@ -1243,12 +1294,27 @@ class DuoFernDecoder:
         """Parse Umweltsensor weather data (0F..1322...).
 
         From 30_DUOFERN.pm: #Umweltsensor Wetter
+
+        Brightness deviates from FHEM's literal formula:
+          FHEM: $brightnessExp = (hex(...) & 0x0400 ? 1000 : 1);
+                $brightness    = (hex(...) & 0x01FF) * $brightnessExp;
+        FHEM masks the mantissa to 9 bits (0-511). Real captured RX frames
+        spanning a full dusk and a full dawn transition (2026-08-04/05)
+        show the raw mantissa rising smoothly past 511 while the
+        scale-flag bit (0x0400, bit 10) stays unset — the correct mantissa
+        width is 10 bits (bits 0-9, 0-1023), matching the flag bit's own
+        position. The 9-bit mask silently drops bit 9, producing a bogus
+        low reading right at the 511/512 crossing; decoding the same
+        frames with a 10-bit mask gives a smooth, monotonic curve with no
+        discontinuity in either direction. This is very likely a
+        long-standing bug in FHEM itself, unnoticed there — verified via
+        raw RX data (dusk 2026-08-04 + dawn 2026-08-05) before deviating.
         """
         frame = DuoFernDecoder._ensure_bytes(data)
         w = WeatherData()
         brightness_raw = (frame[4] << 8) | frame[5]
         brightness_exp = 1000 if (brightness_raw & 0x0400) else 1
-        w.brightness = float((brightness_raw & 0x01FF) * brightness_exp)
+        w.brightness = float((brightness_raw & 0x03FF) * brightness_exp)
         w.sun_direction = frame[7] * 1.5
         w.sun_height = float(frame[8] - 90)
         temp_raw = (frame[9] << 8) | frame[10]
@@ -1421,22 +1487,35 @@ class DuoFernDecoder:
 
             # tSunDir: enabled when bits 4-6 of byte non-zero
             #
-            # FHEM's source formula is angle = (center - width) * 22.5, but
-            # this was empirically found to be off by a constant +45° against
-            # a real Umweltsensor device (confirmed with 3 independent data
-            # points from real getConfig reads vs. the value set in Homepilot
-            # at that exact moment):
-            #   Homepilot 45.0°  <-> raw byte gave 0.0°   (FHEM formula) / 45.0° (corrected)
-            #   Homepilot 22.5°  <-> raw byte gave -22.5° (FHEM formula) / 22.5° (corrected)
-            #   Homepilot 67.5°  <-> raw byte gave 22.5°  (FHEM formula) / 67.5° (corrected)
-            # All 3 were captured with width=90° (width_idx=2); the correction
-            # has not been confirmed at other width settings, so if it turns
-            # out to be width-dependent rather than a flat +45°, this may
-            # need revisiting.
+            # FHEM's source formula is angle = (center - width) * 22.5 (plain
+            # subtraction). This was found to be wrong in two ways, both
+            # confirmed against real Umweltsensor data from @geraldeberle1234:
+            #
+            # 1. A flat +45° offset — confirmed with 3 real getConfig reads
+            #    matched against the value set in Homepilot at that moment
+            #    (45.0°, 22.5°, 67.5°, all at width=90°/width_idx=2).
+            #
+            # 2. Plain subtraction breaks whenever center < width_idx (i.e.
+            #    the low nibble wrapped around during encoding) — e.g. angle
+            #    22.5° at width 90° produced center=1, width_idx=2, and
+            #    plain subtraction gives (1-2)*22.5+45 = -22.5+45 = 22.5...
+            #    which looks right for that one value by coincidence, but the
+            #    encoder side using the same non-modular approach silently
+            #    corrupted several of @geraldeberle1234's confirmed Homepilot angles
+            #    (values that require the low nibble to wrap past 0). Fixed
+            #    by taking (center - width_idx) modulo 16 instead of a plain
+            #    subtraction, matching the hardware's actual 4-bit wraparound
+            #    behavior (verified: @geraldeberle1234's real byte 0xA1 = 22.5°/width 90°
+            #    decodes correctly, and all 14 of his confirmed valid angles ×
+            #    4 confirmed valid widths — 56 combinations — round-trip with
+            #    zero mismatches). See coordinator.py's
+            #    get_trigger_sun_direction_slot / _write_trigger_sun_direction_slot
+            #    for the live implementation and NOTES.md for the full writeup.
             if (t_dir >> 4) & 0x07:
                 center = t_dir & 0x0F
                 width = (t_dir >> 4) & 0x07
-                dir_vals.append(f"{(center - width) * 22.5 + 45}:{width * 45}")
+                angle_idx = (center - width) % 16
+                dir_vals.append(f"{(angle_idx * 22.5 + 45) % 360}:{width * 45}")
             else:
                 dir_vals.append("off")
 
