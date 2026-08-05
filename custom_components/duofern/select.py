@@ -331,7 +331,7 @@ class DuoFernSelect(CoordinatorEntity[DuoFernCoordinator], SelectEntity, Restore
 #
 # One Grenzwert 1-5 selector per trigger group, plus the Homepilot-confirmed
 # discrete-value selects (angle/width options that only ever take specific
-# fixed values, per Gerald's Homepilot screenshots). All other trigger
+# fixed values, per @geraldeberle1234's Homepilot screenshots). All other trigger
 # values (continuous ranges, or unconfirmed ranges) are Number entities in
 # number.py instead — see NOTES.md for the min/max/step source per field.
 
@@ -404,7 +404,7 @@ class DuoFernSunDirectionAngleSelect(
     22.5/45/67.5/90/112.5/135/157.5/180/202.5/225/247.5/270/292.5/315°.
 
     Originally built as a continuous Number (0-337.5° in 22.5° steps) because
-    the exact valid set wasn't confirmed yet. Gerald confirmed the real
+    the exact valid set wasn't confirmed yet. @geraldeberle1234 confirmed the real
     Homepilot dropdown only offers these 14 fixed values — notably NOT 0° and
     NOT 337.5°, which a naive "0 to 337.5 step 22.5" range would have wrongly
     allowed. Converted to Select to make invalid values unselectable, matching

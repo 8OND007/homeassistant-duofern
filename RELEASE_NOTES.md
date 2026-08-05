@@ -1,6 +1,6 @@
 # Release v2.3.4
 
-- **Fixed sun direction angle bug** — the `triggerSunDirection` encoding formula was wrong for most angle/width combinations (integer truncation + an incorrect clamp instead of the real device's natural 4-bit wraparound). Fixed and verified against all 14 of Gerald's confirmed Homepilot angles × 4 confirmed widths (56 combinations, zero mismatches) plus all 3 previously-captured real device bytes.
+- **Fixed sun direction angle bug** — the `triggerSunDirection` encoding formula was wrong for most angle/width combinations (integer truncation + an incorrect clamp instead of the real device's natural 4-bit wraparound). Fixed and verified against all 14 confirmed Homepilot angles × 4 confirmed widths (56 combinations, zero mismatches) plus all 3 previously-captured real device bytes.
 
 - **Confirmed/corrected value ranges** — "Sonne erkennen nach"/"Schatten erkennen nach" corrected to 1–32 (was 1–30). Sonnenrichtung target angle converted from a free-form Number to a Select with exactly the 14 valid Homepilot values. All other previously-unconfirmed ranges are now confirmed correct against real Homepilot sliders.
 
@@ -21,3 +21,7 @@
 - **Documentation: added a section on picking a System Code from scratch** when you have neither FHEM history nor Homepilot access to read the original one back.
 
 - **Fixed: window/door contact "opened"/"tilted" sensors could get stuck on** if the window moved directly between those two states without passing through "closed" first. Both now always reflect the correct current state.
+
+- **Fixed: Umweltsensor brightness readings no longer dip incorrectly around 500 lx.** A bug in the brightness decoding caused the reported lux value to briefly collapse to a near-zero reading whenever the real brightness crossed the ~511 lx mark during dawn or dusk. Verified against real weather frames from a live device.
+
+Thanks a lot to @geraldeberle1234 for helping and testing!

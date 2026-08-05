@@ -461,7 +461,7 @@ async def async_setup_entry(
                 entities.append(
                     DuoFernGrenzwertNumber(coordinator, device_state, hex_code, desc)
                 )
-            # Sonnenrichtung "Zielrichtung" moved to select.py — Gerald
+            # Sonnenrichtung "Zielrichtung" moved to select.py — @geraldeberle1234
             # confirmed it only takes 14 fixed values (22.5°/45°/.../315°,
             # NOT a continuous range), so it belongs as a Select, not a
             # Number. See DuoFernSunDirectionAngleSelect in select.py.
@@ -569,10 +569,10 @@ class DuoFernNumber(CoordinatorEntity[DuoFernCoordinator], NumberEntity, Restore
 #   Wind, Temperatur, Dawn/Dusk-Helligkeit: exact from FHEM wCmds table
 #   Sonne Helligkeit/Verzögerung: derived from encoding bit-width, NOT
 #     confirmed against a real Homepilot slider endpoint — safe assumption,
-#     Gerald asked to verify
-#   Sonne "Ab Temperatur von": bit-width + consistent with Gerald's screenshots
+#     @geraldeberle1234 asked to verify
+#   Sonne "Ab Temperatur von": bit-width + consistent with @geraldeberle1234's screenshots
 #   Sonnenrichtung Zielwinkel: safe assumption (continuous Number with the
-#     22.5° step instead of a fixed option list) — Gerald asked whether 0°/
+#     22.5° step instead of a fixed option list) — @geraldeberle1234 asked whether 0°/
 #     337.5° are valid Homepilot values or not; using Number here means this
 #     doesn't need to be "right" up front, only the min/max needs revisiting
 #     later if it turns out too narrow or too wide
@@ -662,7 +662,7 @@ GRENZWERT_NUMBER_DESCRIPTIONS: tuple[DuoFernGrenzwertNumberDescription, ...] = (
         icon="mdi:brightness-6",
         group="sun",
         native_min_value=1,
-        native_max_value=100,  # confirmed by Gerald against real Homepilot slider
+        native_max_value=100,  # confirmed by @geraldeberle1234 against real Homepilot slider
         native_step=1,
         native_unit_of_measurement="klx",
         get_method="get_trigger_sun_slot",
@@ -676,7 +676,7 @@ GRENZWERT_NUMBER_DESCRIPTIONS: tuple[DuoFernGrenzwertNumberDescription, ...] = (
         icon="mdi:timer-sand",
         group="sun",
         native_min_value=1,
-        native_max_value=32,  # confirmed by Gerald against real Homepilot slider
+        native_max_value=32,  # confirmed by @geraldeberle1234 against real Homepilot slider
         native_step=1,
         native_unit_of_measurement="min",
         get_method="get_trigger_sun_slot",
@@ -690,7 +690,7 @@ GRENZWERT_NUMBER_DESCRIPTIONS: tuple[DuoFernGrenzwertNumberDescription, ...] = (
         icon="mdi:timer-sand",
         group="sun",
         native_min_value=1,
-        native_max_value=32,  # confirmed by Gerald against real Homepilot slider
+        native_max_value=32,  # confirmed by @geraldeberle1234 against real Homepilot slider
         native_step=1,
         native_unit_of_measurement="min",
         get_method="get_trigger_sun_slot",
