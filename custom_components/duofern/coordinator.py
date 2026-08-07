@@ -1840,7 +1840,17 @@ class DuoFernCoordinator(DataUpdateCoordinator[DuoFernData]):
         await self._stick.send_command(frame)
 
     def _set_level(self, device_code: DuoFernId, level: int) -> None:
-        state = self.data.devices.get(device_code.hex)
+        """Optimistically set level/on-off state before status arrives.
+
+        Uses full_hex (not hex) so this also resolves channel-carrying
+        device codes — 0x43's channels and, since 2026-08-05, 0x65/0x74's
+        channel "01" actor. Without this the optimistic UI update silently
+        no-ops for those (this._device_code passed in by DuoFernSwitch is
+        always the channel-less base code). full_hex equals hex when no
+        channel is set, so channel-less switch types (0x46/0x71) are
+        unaffected. Same class of bug as _set_moving, fixed the same way.
+        """
+        state = self.data.devices.get(device_code.full_hex)
         if state:
             state.status.level = level
             self.async_set_updated_data(self.data)
