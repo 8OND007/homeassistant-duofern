@@ -90,7 +90,24 @@ _LOGGER = logging.getLogger(__name__)
 # - obstacle/block/lightCurtain: handled by dedicated BinarySensorEntity instances
 #   in binary_sensor.py — showing them here as well would create duplicate entries
 #   on the device card.
-_SKIP_AS_ATTRIBUTE = {"position", "moving", "obstacle", "block", "lightCurtain"}
+# - automaticClosing/openSpeed: handled by dedicated SelectEntity instances in
+#   select.py (SX5 only).
+# - 2000cycleAlarm/backJump/10minuteAlarm: handled by dedicated SwitchEntity
+#   instances in switch.py (SX5 only).
+# wicketDoor/light have no dedicated entity (no FHEM set-command for them) and
+# are intentionally NOT skipped — they remain attribute-only.
+_SKIP_AS_ATTRIBUTE = {
+    "position",
+    "moving",
+    "obstacle",
+    "block",
+    "lightCurtain",
+    "automaticClosing",
+    "openSpeed",
+    "2000cycleAlarm",
+    "backJump",
+    "10minuteAlarm",
+}
 
 
 async def async_setup_entry(
@@ -269,10 +286,13 @@ class DuoFernCover(CoordinatorEntity[DuoFernCoordinator], CoverEntity):
           Format 23 blinds: + slatPosition, slatRunTime, tiltInSunPos,
                       tiltInVentPos, tiltAfterMoveLevel, tiltAfterStopDown,
                       defaultSlatPos
-          Format 24a (SX5): automaticClosing, openSpeed, 2000cycleAlarm,
-                      wicketDoor, backJump, 10minuteAlarm, light
-                      [obstacle/block/lightCurtain are excluded — they have
-                       dedicated BinarySensorEntity instances in binary_sensor.py]
+          Format 24a (SX5): wicketDoor, light
+                      [obstacle/block/lightCurtain excluded — dedicated
+                       BinarySensorEntity instances in binary_sensor.py.
+                       automaticClosing/openSpeed excluded — dedicated
+                       SelectEntity instances in select.py.
+                       2000cycleAlarm/backJump/10minuteAlarm excluded —
+                       dedicated SwitchEntity instances in switch.py.]
         """
         state = self._device_state
         if state is None:
