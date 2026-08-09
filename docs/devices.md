@@ -94,6 +94,7 @@ Full device support matrix and per-platform feature reference. See the [main REA
   `slatRunTime`, `tiltInSunPos`, `tiltInVentPos`, `reversal`, `motorDeadTime`, `runningTime`,
   and more - depending on device type and status format
 - **Obstacle / Block detection** - the Rohrmotor (`0x49`) and SX5 (`0x4E`) get dedicated `obstacle` and `block` binary sensor entities, usable directly as State triggers in automations. The SX5 additionally gets a `light_curtain` entity. Other cover types may support this too but are unverified - open an issue if your device reports obstacle/block in FHEM. No real frames available yet.
+- **RolloTron obstacle detection** - RolloTron Standard/Comfort Slave/Comfort Master (`0x40`/`0x41`/`0x61`) get a dedicated `obstacle` binary sensor entity, usable as a State trigger. Not part of FHEM - derived from real device frames on a Comfort Master (`0x61`). No `block` entity yet - no confirmed bit position for blockage detection on this device family.
 - **SX5 Light Curtain** - the SX5 garage door (0x4E) additionally gets a `light_curtain` binary sensor entity
 - **Firmware version** - shown in device info after first status frame
 - **Battery state** - shown as attribute where applicable
@@ -170,6 +171,8 @@ The SX5 garage door (0x4E) additionally gets:
 | Light Curtain | `safety` | The safety light curtain is active |
 
 Devices with confirmed obstacle detection: Rohrmotor (`0x49`), SX5 (`0x4E`). Other cover types (Rohrmotor-Aktor `0x42`, Connect-Aktor `0x4B`, Troll Basis `0x4C`, Troll Comfort `0x70`) may support obstacle/block but are unverified - open an issue if your device reports these in FHEM.
+
+RolloTron Standard/Comfort Slave/Comfort Master (`0x40`/`0x41`/`0x61`) get their own dedicated `obstacle` entity too, but no `block` entity - this device family isn't in FHEM's protocol reference at all for obstacle/block, so this was derived purely from real device frames on a Comfort Master (`0x61`) and only a single confirmed test case exists. Open an issue if you can help confirm this on your device, or if you find the bit position for blockage detection.
 
 These entities are **fully triggerable** in HA automations as State triggers - see the [Automations](../README.md#automations) section.
 

@@ -114,6 +114,21 @@ _SX5_OBSTACLE_SENSORS: dict[str, tuple[str, BinarySensorDeviceClass, str]] = {
     ),
 }
 
+# RolloTron family (0x40/0x41/0x61, format "21") — obstacle ONLY, no block.
+# Deliberately separate from _COVER_OBSTACLE_SENSORS: we have no confirmed
+# bit position for "block" on these devices yet, so we must not create a
+# block sensor with nothing backing it (see OBSTACLE_ROLLOTRON_TYPES comment
+# in const.py). Reuses the same translation_key/device_class/icon as the
+# format-24/24a obstacle sensor above — same meaning, just a different
+# device family and StatusID (900, not 400).
+_ROLLOTRON_OBSTACLE_SENSOR: dict[str, tuple[str, BinarySensorDeviceClass, str]] = {
+    "obstacle": (
+        "cover_obstacle",
+        BinarySensorDeviceClass.PROBLEM,
+        "mdi:alert-circle",
+    ),
+}
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -206,6 +221,32 @@ async def async_setup_entry(
                     )
             _LOGGER.debug(
                 "Adding obstacle/block sensors for cover %s",
+                hex_code,
+            )
+
+        # RolloTron obstacle sensor (0x40/0x41/0x61, format 21) — obstacle
+        # only, no block (no confirmed bit position yet). See
+        # OBSTACLE_ROLLOTRON_TYPES / StatusID 900 in const.py for the
+        # single-data-point derivation and caveats.
+        if device_state.device_code.is_obstacle_rollotron:
+            for reading_key, (
+                trans_key,
+                dev_class,
+                icon,
+            ) in _ROLLOTRON_OBSTACLE_SENSOR.items():
+                entities.append(
+                    DuoFernObstacleSensor(
+                        coordinator=coordinator,
+                        device_state=device_state,
+                        hex_code=hex_code,
+                        reading_key=reading_key,
+                        translation_key=trans_key,
+                        device_class=dev_class,
+                        icon=icon,
+                    )
+                )
+            _LOGGER.debug(
+                "Adding obstacle sensor for RolloTron %s",
                 hex_code,
             )
 
