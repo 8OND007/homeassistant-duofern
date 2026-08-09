@@ -18,6 +18,7 @@ Technical reference for the DuoFern serial protocol as implemented by this integ
   - Sequence: SetPairs (0x03) → StartPair (0x04) → RemotePair ×2 (0x0D, flags=0x01) → wait for 0x06 response → StopPair (0x05)
   - The stick must be in pairing mode (StartPair) before sending the pair frame
   - `f[1]=0xFF` required for correct radio payload mapping (`pay[7]=FF`)
+- **RolloTron obstacle detection** (status format `"21"`) — not in FHEM's `30_DUOFERN.pm` at all; FHEM's `%statusGroups{"21"}` has no obstacle/block field, and the word position Rohrmotor/SX5 use for it (word position 2) is already occupied here by `ventilatingPosition`/`ventilatingMode`. Derived from real device frames: word position 4, high byte, bit 7 (bit 15 of the 16-bit word) flips 0→1 when the device reports an obstacle. Confirmed against a single before/after frame pair from a RolloTron Comfort Master (`0x61`); no confirmed bit for blockage detection yet.
 
 ## Sniffing DuoFern Radio Frames (rtl_433)
 

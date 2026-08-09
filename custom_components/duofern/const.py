@@ -142,6 +142,21 @@ OBSTACLE_COVER_TYPES: Final[set[int]] = {
     # 0x42, 0x4B, 0x4C, 0x70 excluded: unverified, no real frames available
 }
 
+# RolloTron family (format "21") — obstacle detection confirmed via real frames
+# (see StatusID 900 comment). Deliberately a SEPARATE set from
+# OBSTACLE_COVER_TYPES: we only have real data for "obstacle", NOT "block" —
+# no bit position confirmed for block yet. Do NOT reuse OBSTACLE_COVER_TYPES /
+# _COVER_OBSTACLE_SENSORS for these, that would also create a "block" sensor
+# with no backing data (permanently "unknown" — misleading). Scope decided
+# by Peter 2026-08-09: all 3 RolloTron types, since even the small 1200
+# RolloTron has obstacle+block per the product manual, despite only 0x61
+# being physically tested.
+OBSTACLE_ROLLOTRON_TYPES: Final[set[int]] = {
+    0x40,  # RolloTron Standard
+    0x41,  # RolloTron Comfort Slave
+    0x61,  # RolloTron Comfort Master — the physically tested device
+}
+
 # Devices that support blinds/slat mode (setsBlinds in FHEM dispatch for 42|4B|4C|70)
 BLINDS_DEVICE_TYPES: Final[set[int]] = {
     0x42,  # Rohrmotor-Aktor
@@ -323,7 +338,7 @@ DEVICE_STATUS_FORMAT_OVERRIDE: Final[dict[int, str]] = {
 # ---------------------------------------------------------------------------
 
 STATUS_GROUPS: Final[dict[str, list[int]]] = {
-    "21": [100, 101, 102, 104, 105, 106, 111, 112, 113, 114, 50],
+    "21": [100, 101, 102, 104, 105, 106, 111, 112, 113, 114, 50, 900],
     "22": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
     "23": [
         102,
@@ -612,6 +627,21 @@ STATUS_IDS: Final[dict[int, dict]] = {
         "name": "sunMode",
         "map": "onOff",
         "chan": {"01": {"position": 6, "from": 7, "to": 7}},
+    },
+    # --- Format 21 extension: RolloTron obstacle detection (NOT in FHEM) ---
+    # StatusID 900 is our own number, not from 30_DUOFERN.pm — FHEM's
+    # %statusGroups{"21"} does not include any obstacle/block field at all
+    # (obstacle=400/block=402 exist only in FHEM for formats "24"/"24a").
+    # Discovered 2026-08-07/08 from real frames of a RolloTron Comfort Master
+    # (0x61, hex 61554F/61D753): byte offset 7 (word position 4, high byte)
+    # bit 7 — i.e. bit 15 of the 16-bit word — flips 0->1 while Homepilot
+    # shows the cover as "obstacle detected", and back available for a clean
+    # off-state comparison. Verified against exactly ONE before/after frame
+    # pair — no repeat confirmation, no FHEM reference. See NOTES.md for the
+    # full derivation and caveats before touching this again.
+    900: {
+        "name": "obstacle",
+        "chan": {"01": {"position": 4, "from": 15, "to": 15}},
     },
     # --- Format 23 / 23a: Rohrmotor / Troll ---
     115: {

@@ -41,7 +41,6 @@ from enum import IntEnum
 from .const import (
     BINARY_SENSOR_DEVICE_TYPES,
     BLINDS_DEVICE_TYPES,
-    OBSTACLE_COVER_TYPES,
     BLIND_MODE_READINGS,
     CLIMATE_DEVICE_TYPES,
     COVER_DEVICE_TYPES,
@@ -52,6 +51,8 @@ from .const import (
     FRAME_SIZE_BYTES,
     FRAME_SIZE_HEX,
     LIGHT_DEVICE_TYPES,
+    OBSTACLE_COVER_TYPES,
+    OBSTACLE_ROLLOTRON_TYPES,
     REMOTE_DEVICE_TYPES,
     SENSOR_DEVICE_TYPES,
     SENSOR_MESSAGES,
@@ -162,6 +163,15 @@ class DuoFernId:
     def is_obstacle_cover(self) -> bool:
         """Return True if this cover can report obstacle/block detection."""
         return self.raw[0] in OBSTACLE_COVER_TYPES
+
+    @property
+    def is_obstacle_rollotron(self) -> bool:
+        """Return True if this RolloTron can report obstacle detection.
+
+        Separate from is_obstacle_cover — see OBSTACLE_ROLLOTRON_TYPES comment
+        in const.py: only "obstacle" is confirmed for these, not "block".
+        """
+        return self.raw[0] in OBSTACLE_ROLLOTRON_TYPES
 
     @property
     def is_light(self) -> bool:
